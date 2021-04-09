@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1617930016849.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "DCDC9B47",
+    "lastKnownWriteTime" : 1612304139,
+    "last_content_update" : 1612304139,
+    "path" : "~/GitHub/Burnetal2020_CoralBleaching/Burnetal2020_CoralBleaching.Rmd",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "446,59",
+        "scrollLine" : "425"
+    },
+    "relative_order" : 6,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

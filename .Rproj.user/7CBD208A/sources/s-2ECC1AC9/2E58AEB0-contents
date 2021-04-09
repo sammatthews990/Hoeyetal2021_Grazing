@@ -1,0 +1,1089 @@
+---
+title: "Burnetal2020_CoralInjuries"
+author: "Samuel Matthews"
+date: "11 August 2020"
+output: html_document
+---
+
+```{r LoadData, echo=FALSE, cache=TRUE}
+library(tidyverse)
+library(readxl)
+dat = read_excel("Data/RAW - Coral Health and Recruitment Surveys.xlsx", sheet = "Raw Data")
+SectorRegion = read_excel("Data/reef-region.xlsx", sheet = "Sheet1")
+Injuries = read_excel("Data/RAW - Coral Health and Recruitment Surveys.xlsx", sheet = "Injuries")
+
+#Edit data as per Hugo's code - tidying up Site and Genus names
+dat.edit = dat %>%
+  select(-`#`) %>%
+  left_join(Injuries, by = "Cause") %>%
+  filter(!`Coral Health` %in% c(NA, "F - 100% Recent Mortality")) %>%
+  mutate(Reef = gsub("Bouganville", "Bougainville", Reef),
+         Reef = gsub("East Diamond", "Diamond", Reef),
+         Reef = gsub(" Island", "", Reef),
+         Reef = gsub("Hickson", "Hixon", Reef),
+         Reef = gsub("Yamacuta", "Yamacutta", Reef),
+         Site = gsub("Hickson", "Hixon", Site)) %>%
+  left_join(SectorRegion, by = "Reef") %>%
+  mutate(CoralHealth = as.factor(paste0(toupper(substr(`Coral Health`, 1, 1)), 
+                                 substr(`Coral Health`, 2, nchar(`Coral Health`)))),
+         Year = lubridate::year(Date),
+         Site = factor(paste(Reef, Site, sep = " ")),
+         Year = as.factor(Year),
+         Reef = as.factor(Reef),
+         Region = as.factor(Region),
+         Cause = factor(Cause),
+         Category = factor(Category)) %>%
+  #Simplify genera
+  mutate(Genus = gsub("Millepora - branching", "Millepora", Genus),
+         Genus = gsub("Millepora - encrusting", "Millepora", Genus),
+         Genus = gsub("Millepora - encrusting with uprights", "Millepora", Genus),
+         Genus = gsub("Montipora - branching", "Montipora", Genus),
+         Genus = gsub("Montipora - encrusting", "Montipora", Genus),
+         Genus = gsub("Montipora - other", "Montipora", Genus),
+         Genus = gsub("Other scleractinian", "Other Scleractinia", Genus),
+         Genus = gsub("Other Scleractinian", "Other Scleractinia", Genus),
+         Genus = gsub("Porites - encrusting with uprights", "Porites rus", Genus),
+         Genus = gsub("Porites with uprights", "Porites rus", Genus),
+         Genus = gsub("Turbinarea", "Turbinaria", Genus),
+         Genus = gsub("Dendronephthea", "Dendronephthya", Genus),
+         Genus = gsub("Paragoniastrea", "Paramontastraea", Genus),
+         Genus = gsub("PLatygyra", "Platygyra", Genus),
+         Genus = gsub("Plerogyra", "Pleurogyra", Genus),
+         Genus = gsub("Podabacia", "Podobacia", Genus),
+         Genus = gsub("Turbastrea", "Tubastrea", Genus),
+         Genus = factor(Genus)) %>%
+  filter(! Genus %in% c("Nephthea", "Effloutanaria", "Lobophytum", "Palythoa", 
+                        "Sarcophyton", "Sinularia", 
+                        "Soft coral - other", "Other - soft", "Distichopora", "Efflatounaria",
+                        "Klyxum", "Soft - branching", "Soft - other", "Isis", 
+                        "Tubipora", "Xenia", "Briaria", "Efflatounaria?",
+                        "Millepora", "Rhytisma"))
+
+# Identify sites that were visited in both 2018 and 2019 
+dat.sites.repeat = dat.edit %>% 
+  mutate(Site = as.character(Site),
+         Year = as.integer(as.character(Year))) %>%
+  filter(!Year == 2020) %>%
+  group_by(Reef, Site) %>% 
+  summarise(nYear = length(unique(as.character(Year)))) %>%
+  arrange(Site) %>%
+  filter(nYear > 1) %>% pull(Site)
+
+# Convert to long format
+dat.long = dat.edit %>% 
+  tidyr::gather(key = "Size", value = "Number", -c(1:8, 14:20)) %>%
+  mutate(REGION = gsub(".*CSMP.*", "CSMP", Region),
+         REGION = gsub(".*GBR.*", "GBR", REGION),
+         Size = factor(Size, levels = c("Juv (<5cm)","<20cm","20-40cm","40-60cm",">60cm")),
+         Size2 = ifelse(Size %in% c("<20cm","20-40cm"), "5-40cm", 
+                        ifelse(Size %in% c("40-60cm",">60cm"), ">40cm","Juv (<5cm)")),
+         Region = factor(Region, levels = c("North CSMP", "Central CSMP", "South CSMP", 
+                            "North GBR", "Central GBR", "South GBR" )),
+         # Convert Injury to binary response
+         Injured = ifelse(CoralHealth %in% c("E - 50-99% Recent Mortality", 
+                                             "D - 5-50% Recent mortality"), 1,0),
+         NoInjured = Number*Injured,
+         NotInjured = ifelse(Injured == 1,0,Number),
+         Category = ifelse(Injured == 0, "Healthy", as.character(Category)),
+         Category = ifelse(is.na(Category), "Unknown", Category)) %>%
+  filter(!is.na(Number))
+
+# Find overall proportions of injury by Genus
+dat.prop = dat.long %>%
+  group_by(Genus) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured)) %>%
+  mutate(PropInjured = NumberInjured/Total)
+
+```
+
+## Q1. Which taxa (sizes pooled) are most susceptible to injuries? 
+
+what is the predominant cause (if known)? Use data from 2018/19, pooled with repeated sites discarded
+
+*H0 : There is no difference in the incidence of injury among taxa
+
+*What I expect : Porites is most susceptible to injury, as per previous studies in other regions. Leading cause is likely to be unknown, although for Pocillopora and Acropora, probably Drupella snails.
+
+```{r Q1}
+# Make Summary plot of incidence of injuries for each Taxa/Size Pairing
+# Mean +/- SE for Proportion injured
+dat.prop.Inj= dat.long %>% 
+  # filter(Genus %in% taxa) %>%
+  #Filter out 2020 and the sites that were visited in both 2018 and 2019
+  filter(!Year %in% "2020") %>%
+  filter(!(Year %in% "2019" & Site %in% dat.sites.repeat)) %>%
+  ## Caluculate % injured at a site level
+  group_by(Reef, Site, Genus) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured)) %>%
+  mutate(PropInjured = NumberInjured/Total) %>%
+  # Exclude site with less than 5 colonies
+  filter(Total >=5) %>%
+  ## Caluculate % injured at a genus level and calculate mean and se prop injured from site level data above
+  group_by(Genus) %>%
+  summarise(TotalColonies = sum(Total),
+            TotalInjured = sum(NumberInjured),
+            Prop = TotalInjured/TotalColonies,
+            nSites = n(),
+            nReefs = length(unique(as.character(Reef))),
+            MeanInj = mean(PropInjured),
+            SEInj = sd(PropInjured)/sqrt(nSites)) %>%
+  # exlcude taxa present on < 5 reefs or with <80 colonies in total
+  filter(nReefs >=5 & TotalColonies >= 80) %>%
+  arrange(-MeanInj)
+#Extract taxa ordered by their mean prop injured
+dat.arrangetaxa = dat.prop.Inj$Genus
+
+
+# Create median for plotting
+hlines = dat.prop.Inj %>%
+  summarise(Med = median(MeanInj,na.rm = T))
+
+dat.prop.Inj$Genus = factor(dat.prop.Inj$Genus,levels = rev(dat.arrangetaxa))
+
+# OVerall PLot of Prop Injured
+ggplot(dat.prop.Inj, aes(x=Genus, y=MeanInj)) +
+  geom_hline(aes(yintercept = hlines$Med), linetype = "dashed")+
+  geom_linerange(aes(ymin = MeanInj-SEInj, 
+                     ymax = MeanInj+SEInj)) +
+  geom_point(aes(color=MeanInj), size=3, alpha=1) +
+  scale_colour_distiller(palette = "Spectral",labels=scales::percent) +
+  theme_light(base_size = 14) + xlab("Taxonomy")+ labs(y = "Mean Percent Injured") +
+  coord_flip() +
+  # facet_grid(~CatBleach) + 
+  scale_y_continuous(labels = scales::percent, breaks = c(0,0.05,0.1)) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), legend.title = element_blank(),
+    legend.position = "bottom",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+ggsave(filename = "Figures/PropInj.png", device = "png", width = 8, height = 8, dpi = 300) 
+```
+
+
+## Q2 Is there a difference in prevalence or leading cause of injury between a year of routine/ background injury (2018/19) and during a major bleaching event (2020)?.  
+
+* H0 : There is no difference in prevalence or leading cause of injury between a year where only background/routine disturbance is occurring (April 2018- feb 19) and during a massive bleaching event (feb/march 2020)
+
+* What I expect : During 2020, there was a higher prevalence of injury than in 2018/19, and the leading cause was probably also ‘unknown’ followed by ‘bleaching’.
+
+```{r Q2 Backgound Injury Summary Data 2018/19}
+## THIS CHUNK IS JUST 2018/19 DATA
+dat.long.edit= dat.long %>% 
+  filter(Genus %in% dat.arrangetaxa) %>%
+  #Filter out 2020 and the sites that were visited in both 2018 and 2019
+  filter(!Year %in% "2020") %>%
+  filter(!(Year %in% "2019" & Site %in% dat.sites.repeat)) 
+# Create toal injury pooled across all GENUS and SIZE
+dat.Inj.Total = dat.long.edit %>% 
+  summarise(Size2 = "Overall",
+            Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            PropInjured = NumberInjured/Total)
+# Create toal injury pooled across all GENUS and bind the above table
+dat.Inj= dat.long.edit %>% 
+  group_by(Size2) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            PropInjured = NumberInjured/Total) %>% 
+  bind_rows(dat.Inj.Total)
+dat.Inj$Size2 = factor(dat.Inj$Size2, levels = c("Overall", "Juv (<5cm)", "5-40cm", ">40cm"))
+# Arrange taxa based on overall proportion injured in 2018/19
+dat.arrangeoverall = dat.long.edit %>%
+  group_by(Genus) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            PropInj = NumberInjured/Total) %>%
+  arrange(-PropInj) %>% pull(Genus)
+
+# Calculate PRop injured in each size class by category of injury
+dat.PropSize.Inj= dat.long.edit %>% 
+  filter(!Category %in% "Healthy") %>%
+  group_by(Category, Size2) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            NotInjured = sum(NotInjured)) %>%
+  group_by(Size2) %>%
+  mutate(SizeSum = sum(Total),
+         SizeProp = Total/SizeSum) %>%
+  arrange(Size2, SizeProp) %>%
+  mutate(ymax = cumsum(SizeProp),
+         ymin = c(0, head(ymax, n=-1)))
+# Calculate PRop injured in total by category of injury
+dat.PropAll.Inj= dat.long.edit %>% 
+  filter(!Category %in% "Healthy") %>%
+  group_by(Category) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            NotInjured = sum(NotInjured)) %>%
+  mutate(Size2 = "Overall",
+         SizeSum = sum(Total),
+         SizeProp = Total/SizeSum) %>%
+  arrange(Size2, SizeProp) %>%
+  mutate(ymax = cumsum(SizeProp),
+         ymin = c(0, head(ymax, n=-1)))
+
+# Combine the two above tables to create 4 panel charts with size classes and total
+dat.PropSize.Inj = bind_rows(dat.PropSize.Inj, dat.PropAll.Inj) %>% ungroup() %>%
+  mutate(Size2 = factor(Size2, levels = c("Overall", "Juv (<5cm)", "5-40cm", ">40cm")))
+
+# Same process as above but also include genus to get a breakdown of size, genus and category
+dat.PropSizeGen.Inj= dat.long %>% 
+  filter(Genus %in% dat.arrangetaxa) %>%
+  #Filter out 2020 and the sites that were visited in both 2018 and 2019
+  filter(!Year %in% "2020") %>%
+  filter(!(Year %in% "2019" & Site %in% dat.sites.repeat)) %>%
+  group_by(Category, Genus, Size2) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            NotInjured = sum(NotInjured)) %>%
+  group_by(Genus, Size2) %>%
+  mutate(SizeSum = sum(Total),
+         SizeProp = Total/SizeSum) %>%
+  arrange(Genus, Size2, SizeProp) %>%
+  mutate(ymax = cumsum(SizeProp),
+         ymin = c(0, head(ymax, n=-1))) %>%
+  ungroup() %>% mutate(Genus = factor(Genus, levels = rev(dat.arrangeoverall)))
+
+dat.PropGenAll.Inj= dat.long %>% 
+  filter(Genus %in% dat.arrangetaxa) %>%
+  #Filter out 2020 and the sites that were visited in both 2018 and 2019
+  filter(!Year %in% "2020") %>%
+  filter(!(Year %in% "2019" & Site %in% dat.sites.repeat)) %>%
+  group_by(Category, Genus) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            NotInjured = sum(NotInjured)) %>%
+  group_by(Genus) %>%
+  mutate(Size2 = "Overall",
+         SizeSum = sum(Total),
+         SizeProp = Total/SizeSum) %>%
+  arrange(Genus, SizeProp) %>%
+  mutate(ymax = cumsum(SizeProp),
+         ymin = c(0, head(ymax, n=-1))) %>%
+  # this line arranges the genus based on their overall level of injury
+  ungroup() %>% mutate(Genus = factor(Genus, levels = rev(dat.arrangeoverall)))
+
+# Combine the two above tables to create 4 panel charts with size classes, genus and total
+dat.PropSizeGen.Inj = bind_rows(dat.PropSizeGen.Inj, dat.PropGenAll.Inj) %>%
+  mutate(Size2 = factor(Size2, levels = c("Overall", "Juv (<5cm)", "5-40cm", ">40cm")))
+```
+
+
+
+
+```{r Q2 Backgound Injury Plots 2018/19}
+library(gtable)
+library(gridExtra)
+library(grid)
+
+# Pie Chart of proportion of injury for each cateogry by size classes and overall
+pInj = ggplot(dat.PropSize.Inj, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=Category)) +
+     geom_rect() + facet_wrap(~Size2, ncol = 4) +
+     scale_fill_viridis_d() +
+     coord_polar(theta="y") + 
+     xlim(c(2, 4)) + 
+     theme_bw() +
+     theme(axis.text = element_blank(), axis.ticks = element_blank(), 
+           axis.line = element_blank(), panel.grid = element_blank(), 
+           legend.position = "bottom")
+
+# Rotated stacked bar chart showing the proportion of coral from each genus and size class that were affected by injury
+pGenusInj = ggplot(dat.PropSizeGen.Inj %>% 
+         filter(!Category %in% "Healthy"), 
+  aes(fill=Category, y=SizeProp, x=Genus)) +
+  facet_wrap(~Size2, ncol=4) +
+  geom_bar(position="stack", stat="identity") +
+  scale_fill_viridis_d() +
+  ylab("Proportion of Corals Injured") + ylim(c(0,0.3)) +
+  theme_bw() + theme(legend.position = "none") + coord_flip() +
+  geom_hline(data = dat.Inj, aes(yintercept = PropInjured), linetype = "dashed")
+
+# Extract the category levles so they can be matched to the plot for 2020
+categorylevels = levels(as.factor(dat.PropSizeGen.Inj$Category))[-9] # This remove the healthy category
+
+# Arrange Plots
+g = egg::ggarrange(pGenusInj,pInj,nrow=2, heights = c(0.5,1.5))
+ggsave("Figures/Inj201819.png", plot = g, device = "png", 
+       width = 8, height = 7, dpi=300)
+ggsave("Figures/Inj201819.eps", plot = g, device = "eps", 
+       width = 8, height = 7, dpi=300)
+ggsave("Figures/Inj201819.svg", plot = g, device = "svg", 
+       width = 8, height = 7, dpi=300)
+
+# Write Out Summaries for reference
+write.csv(dat.Inj, "Data/SummarySize201819.csv")
+write.csv(dat.PropSize.Inj, "Data/SummaryCatSize201819.csv")
+write.csv(dat.PropSizeGen.Inj, "Data/SummaryGenSize201819.csv")
+
+```
+
+## Q2 Is there a difference in prevalence or leading cause of injury between a year of routine/ background injury (2018/19) and during a major bleaching event (2020)?.  
+
+
+
+
+```{r Q2 Bleaching Injury Summary Data 2020}
+# Same Process as the chunk above but for the 2020 year
+dat.long.editBL= dat.long %>% 
+  filter(Genus %in% dat.arrangetaxa) %>%
+  #Filter out 2020 and the sites that were visited in both 2018 and 2019
+  filter(Year %in% "2020")  
+
+dat.arrangeoverallBL = dat.long.editBL %>%
+  group_by(Genus) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            PropInj = NumberInjured/Total) %>%
+  arrange(-PropInj) %>% pull(Genus)
+
+dat.Inj.TotalBL = dat.long.editBL %>% 
+  summarise(Size2 = "Overall",
+            Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            PropInjured = NumberInjured/Total) 
+dat.InjBL= dat.long.editBL %>% 
+  group_by(Size2) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            PropInjured = NumberInjured/Total) %>% 
+  bind_rows(dat.Inj.TotalBL)
+dat.InjBL$Size2 = factor(dat.InjBL$Size2, levels = c("Overall", "Juv (<5cm)", "5-40cm", ">40cm"))  
+
+dat.PropSize.InjBL = dat.long.editBL %>% 
+  filter(!Category %in% "Healthy") %>%
+  group_by(Category, Size2) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            NotInjured = sum(NotInjured)) %>%
+  group_by(Size2) %>%
+  mutate(SizeSum = sum(Total),
+         SizeProp = Total/SizeSum) %>%
+  arrange(Size2, SizeProp) %>%
+  mutate(ymax = cumsum(SizeProp),
+         ymin = c(0, head(ymax, n=-1)),
+         Category = factor(Category, levels = categorylevels))
+
+dat.PropAll.InjBL= dat.long.editBL %>% 
+  filter(!Category %in% "Healthy") %>%
+  group_by(Category) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            NotInjured = sum(NotInjured)) %>%
+  mutate(Size2 = "Overall",
+         SizeSum = sum(Total),
+         SizeProp = Total/SizeSum) %>%
+  arrange(Size2, SizeProp) %>%
+  mutate(ymax = cumsum(SizeProp),
+         ymin = c(0, head(ymax, n=-1)))
+
+dat.PropSize.InjBL = bind_rows(dat.PropSize.InjBL, dat.PropAll.InjBL) %>% ungroup() %>%
+  mutate(Size2 = factor(Size2, levels = c("Overall", "Juv (<5cm)", "5-40cm", ">40cm")),
+         Category = factor(Category, levels = categorylevels))
+
+dat.PropSizeGen.InjBL= dat.long %>% 
+  filter(Genus %in% dat.arrangetaxa) %>%
+  #Filter for 2020
+  filter(Year %in% "2020") %>%
+  group_by(Category, Genus, Size2) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            NotInjured = sum(NotInjured)) %>%
+  group_by(Genus, Size2) %>%
+  mutate(SizeSum = sum(Total),
+         SizeProp = Total/SizeSum) %>%
+  arrange(Genus, Size2, SizeProp) %>%
+  mutate(ymax = cumsum(SizeProp),
+         ymin = c(0, head(ymax, n=-1))) %>%
+  ungroup() %>% mutate(Genus = factor(Genus, levels = rev(dat.arrangeoverall)))
+
+dat.PropGen.InjBL= dat.long %>% 
+  filter(Genus %in% dat.arrangetaxa) %>%
+  #Filter for 2020
+  filter(Year %in% "2020") %>%
+  group_by(Category, Genus) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            NotInjured = sum(NotInjured)) %>%
+  group_by(Genus) %>%
+  mutate(Size2 = "Overall",
+         SizeSum = sum(Total),
+         SizeProp = Total/SizeSum) %>%
+  arrange(Genus, SizeProp) %>%
+  mutate(ymax = cumsum(SizeProp),
+         ymin = c(0, head(ymax, n=-1))) %>%
+  # THis is the line where you can chagne the order of the Genus, change it to  dat.arranbeoverallBL to have it reltive to just 20202
+  ungroup() %>% mutate(Genus = factor(Genus, levels = rev(dat.arrangeoverall)))
+
+dat.PropSizeGen.InjBL = bind_rows(dat.PropSizeGen.InjBL, dat.PropGen.InjBL) %>%
+  mutate(Size2 = factor(Size2, levels = c("Overall", "Juv (<5cm)", "5-40cm", ">40cm")),
+         Category = factor(Category, levels = categorylevels))
+ 
+```
+
+```{r Q2 Backgound Injury Plots 2018/19}
+# Make the plots
+pInjBL = ggplot(dat.PropSize.InjBL, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=Category)) +
+     geom_rect() + facet_wrap(~Size2, ncol = 4) +
+     scale_fill_viridis_d(drop=FALSE) +
+     coord_polar(theta="y") + 
+     xlim(c(2, 4)) + 
+     theme_bw() +
+     theme(axis.text = element_blank(), axis.ticks = element_blank(), 
+           axis.line = element_blank(), panel.grid = element_blank(), 
+           legend.position = "bottom")
+
+pGenusInjBL = ggplot(dat.PropSizeGen.InjBL %>% 
+         filter(!Category %in% "Healthy"), 
+  aes(fill=Category, y=SizeProp, x=Genus)) +
+  facet_wrap(~Size2, ncol=4) +
+  geom_bar(position="stack", stat="identity") +
+  scale_fill_viridis_d(drop=FALSE) +
+  ylab("Proportion of Corals Injured") + ylim(c(0,0.3)) +
+  theme_bw() + theme(legend.position = "none") + coord_flip() +
+  geom_hline(data = dat.InjBL, aes(yintercept = PropInjured), linetype = "dashed")
+
+# Arrange Plots
+g = egg::ggarrange(pGenusInjBL,pInjBL,nrow=2, heights = c(0.5,1.5))
+ggsave("Figures/Inj2020.png", plot = g, device = "png", 
+       width = 8, height = 7, dpi=300)
+ggsave("Figures/Inj2020.eps", plot = g, device = "eps", 
+       width = 8, height = 7, dpi=300)
+ggsave("Figures/Inj2020.svg", plot = g, device = "svg", 
+       width = 8, height = 7, dpi=300)
+
+# Write Out Summaries for reference
+write.csv(dat.InjBL, "Data/SummarySize2020.csv")
+write.csv(dat.PropSize.InjBL, "Data/SummaryCatSize2020.csv")
+write.csv(dat.PropSizeGen.InjBL, "Data/SummaryGenSize2020.csv")
+
+```
+
+
+
+## Q3 Does incidence of injury vary spatially? 
+
+It may be interesting to just use a few of the most susceptible taxa or sizes from Qs 1 & 2 instead of pooling it all. I think for this one, we will only use 2018/19 again.
+
+* H0 : There is no difference in the incidence of injury for all taxa/taxa A among habitat, site, reef, or marine park. (nested anova?).
+
+* What I expect: other studies have found higher variability on smaller scales than larger scales. But not sure what to expect here.
+
+```{r Fit Model}
+library(splitstackshape)
+library(data.table)
+library(lme4)
+library(brms)
+library(emmeans)
+library(performance)
+# For this we are fitting a nested anova in BRMS we will nest trasnest in habitiat in site in reef in region, with size year as fixed factors
+dat.long.editALL = bind_rows(dat.long.edit, dat.long.editBL) %>%
+  mutate(Year = lubridate::year(Date),
+         Year = factor(ifelse(Year==2020, "2020", "2018/19")),
+         Zone = gsub("crest", "Crest", Zone),
+         Zone = gsub("slope", "Slope", Zone),
+         Zone = factor(Zone))
+
+
+# Create Dat.mod which has a row for each observation
+dat.mod = dat.long.editALL %>% mutate (Injured = factor(Injured)) %>% 
+  group_by(Year,REGION,Region,Reef,Site,Zone, Transect,Genus,Size2, Injured) %>%
+  summarise(Colonies = sum(Number))
+dat.mod = as.data.table(dat.mod)
+dat.mod = expandRows(dat.mod, "Colonies")
+dat.mod = dat.mod %>% 
+  # filter(Genus %in% dat.arrangetaxa)%>%
+  #  select(-c(1,5,7)) %>%
+  mutate(Injured = as.numeric(as.character(Injured)), 
+          Reef = factor(Reef), 
+          Genus = factor(Genus),
+          Size2 = factor(Size2)) 
+#Find the top 5 most abundant tax
+
+taxa = dat.long.editALL %>% group_by(Genus) %>% 
+  summarise(n = sum(Number)) %>% top_n(5, n) %>%
+  pull(Genus) %>% as.character()
+
+#Add montipora to the list
+taxa = c(taxa, "Montipora")
+
+
+# Create subset for models
+dat.mod.sub = dat.mod %>% filter(Genus %in% taxa) %>%
+  mutate(Genus = factor(Genus))
+
+
+
+# Fit Spatial Model
+mod.Spatial = brm(formula = Injured ~ REGION*Zone +(1|Reef/Site),
+                data = dat.mod.sub,
+                family = bernoulli(),
+                prior = m1priors, thin=10,
+                warmup = 500, iter = 1000, chains = 3, cores = 3,
+                control = list(adapt_delta = 0.9, 
+                               max_treedepth=10))
+# Fit Genus Size Model
+mod.brms2.Lrg2 = brm(formula = Injured ~ Genus*Year + Genus*Size2 +(1|REGION/Reef/Site/Zone),
+                data = dat.mod.sub,
+                family = bernoulli(),
+                prior = m1priors, thin=10,
+                warmup = 2000, iter = 4000, chains = 3, cores = 3,
+                control = list(adapt_delta = 0.98, 
+                               max_treedepth=13))
+# Full Model -- NOT USED IN THESIS, we will use for publication
+m3priors = get_prior(formula = Injured ~ Genus*Year + Genus*Size2 + REGION*Zone + (1|REGION/Reef/Site),
+                data = dat.mod.sub,
+                family = bernoulli())
+mod.brms3 = brm(formula = Injured ~ Genus*Year + Genus*Size2 + REGION*Zone + (1|REGION/Reef/Site),
+                data = dat.mod.sub,
+                family = bernoulli(),
+                prior = m3priors, thin=10,
+                warmup = 400, iter = 4000, chains = 3, cores = 3,
+                control = list(
+                  # adapt_delta = 0.98, 
+                  # max_treedepth=13
+                  )
+                )
+
+load("Models.RData")
+mod.brms2.sum = print(mod.brms2.Lrg2)
+mod.rand = data.frame(do.call(rbind, mod.brms2.sum[["random"]]))
+mod.rand$Scale = names(mod.brms2.sum[["random"]])
+mod.rand = mod.rand[c(8,1:7)]
+
+write.csv(mod.rand, "RandomEffects_SpatialScale.csv", row.names = F)
+r2.mod = performance::r2_bayes(mod.Spatial)
+r2.mod.Lrg = performance::r2_bayes(mod.brms2.Lrg2)
+```
+
+
+
+```{r Model Estimated Marginal Means for Post Hoc Comparisons}
+# Gneerated estimated marginal means for comparisons of fixed effects
+model_em1 <- emmeans(mod.brms2.Lrg2,  ~  Genus|Size2)
+model_em2 <- emmeans(mod.brms2.Lrg2,  ~ Genus|Year)
+model_em3 <- emmeans(mod.brms2.Lrg2,  ~ Genus)
+model_em4 <- emmeans(mod.brms2.Lrg2,  ~ Year)
+model_em5 <- emmeans(mod.brms2.Lrg2,  ~ Size2)
+model_em6 <- emmeans(mod.brms2.Lrg2,  ~  Size2|Genus)
+model_em7 <- emmeans(mod.brms2.Lrg2,  ~ Year|Genus)
+
+# Do the same for the spatial mddel
+model_Sem1 <- emmeans(mod.Spatial,  ~  REGION|Zone)
+model_Sem4 <- emmeans(mod.Spatial,  ~  Zone|REGION)
+model_Sem2 <- emmeans(mod.Spatial,  ~ REGION)
+model_Sem3 <- emmeans(mod.Spatial,  ~ Zone)
+
+# Generate multiple comparisons tukey tests
+completters.Size = multcomp::cld(model_em5,Letters=letters, details=T)
+completters.Genus = multcomp::cld(model_em3, Letters=letters, details=T)
+completters.Year = multcomp::cld(model_em4, Letters=letters, details =T)
+completters.SizeGenus = multcomp::cld(model_em6, Letters=letters, details=T)
+completters.YearGenus = multcomp::cld(model_em7, Letters=letters, details=T)
+
+# Extract the letters from the compact letter display to label on the plots in the following chunks
+labelSizeGenus <- data.frame(
+  completters.SizeGenus[["emmeans"]][,c(1,2,8)],
+  .value = -9) %>% mutate(.group = str_trim(.group)) %>%
+  spread(Size2, .group) %>%
+  mutate(.group = paste(`Juv (<5cm)`, `5-40cm`,`>40cm`, sep = ","))
+
+labelYearGenus <- data.frame(
+  completters.YearGenus[["emmeans"]][,c(1,2,8)],
+  .value = -9) %>% mutate(.group = str_trim(.group)) %>%
+  spread(Year, .group) %>%
+  mutate(.group = paste(`2018/19`, `2020`, sep = ","))
+
+labelSize <- data.frame(
+  completters.Size[["emmeans"]][,c(1,7)],
+  .value = 4) %>% mutate(.group = str_trim(.group)) 
+
+labelGenus <- data.frame(
+  completters.Genus[["emmeans"]][,c(1,7)],
+  .value = -9) %>% mutate(.group = str_trim(.group)) 
+
+labelYear <- data.frame(
+  completters.Year[["emmeans"]][,c(1,7)],
+  .value = 4) %>% mutate(.group = str_trim(.group)) 
+```
+
+
+```{r Plot Model Results}
+library(emmeans)
+library(tidybayes)
+library(ggdist)
+library(viridisLite)
+
+logit2prob <- function(logit){
+  odds <- exp(logit)
+  prob <- odds / (1 + odds)
+  return(prob)
+}
+
+prob2logit <- function(prob){
+  log(prob/(1-prob))
+}
+
+# These lines are used to put on the plots to indicate where percentages line up with the log-odds scale
+vlines = data.frame(.value=prob2logit(c(0.001,0.01,0.05,0.2,0.5, 0.8,0.95, 0.99)),
+                    .label=paste0(c(0.001,0.01,0.05,0.2,0.5, 0.8,0.95, 0.99)*100, "%"),
+                    Genus = "Porites - massive",
+                    Size2 = "Juv (<5cm)",
+                    Year = "2018/19")
+# Rearrange the taxa for plotting
+modarrange.taxa = taxa[c(5,3,1,2,6,4)]
+
+# Generate the data fhe genus*Size plot from the model
+p1 = 
+  mod.brms2.Lrg2 %>% 
+  emmeans( ~ Genus|Size2) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws(n=100) %>%
+  mutate(Genus = factor(Genus, levels = rev(modarrange.taxa)),
+         Size2 = factor(Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm")))
+
+#Create Genus*Size PLot
+GenusSizePlot = p1 %>%
+  ggplot(aes(x = .value, y = Genus, fill = Size2)) +
+  geom_vline(xintercept = vlines$.value, linetype = "dashed", colour="darkgrey") +
+  stat_halfeye(alpha=0.7, size =0.5) +
+  coord_cartesian(xlim =c(-10,5)) +
+  geom_label(data=vlines, aes(label=.label), fill="white", vjust=1.5) +
+  geom_label(data=labelSizeGenus, aes(label=.group),fill="grey55", colour = "white", vjust=0.5, nudge_y =0.2, size=5) +
+  scale_fill_viridis_d() +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "right") + guides(fill=guide_legend(title="Colony Size")) +
+  ylab("Taxonomy") + xlab("P(Injury) : Log-Odds")
+GenusSizePlot
+
+# Generate the data fhe genus*Year plot from the model
+p2 = 
+  mod.brms2.Lrg2 %>% 
+  emmeans( ~ Genus|Year) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(Genus = factor(Genus, levels = rev(modarrange.taxa)))
+
+# #Create Genus*Size PLot
+GenusYearPlot = p2 %>%  
+  ggplot(aes(x = .value, y = Genus, fill = Year)) +
+  geom_vline(xintercept = vlines$.value, linetype = "dashed", colour="grey") +
+  stat_halfeye(alpha=0.7, size =0.5) +
+  coord_cartesian(xlim =c(-10,5)) +
+  geom_label(data=vlines, aes(label=.label), fill="white", vjust=1.5) +
+  geom_label(data=labelYearGenus, aes(label=.group),fill="grey55", colour = "white", vjust=0.5, nudge_y =0.2, size=5) +
+  scale_fill_manual(values = c("blue", "red")) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "right") +
+  ylab("Taxonomy") + xlab("P(Injury) : Log-Odds")
+GenusYearPlot
+
+# Generate the data fhe genus plot from the model
+p3 = 
+  mod.brms2.Lrg2 %>% 
+  emmeans( ~ Genus) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(Genus = factor(Genus, levels = rev(modarrange.taxa))) 
+
+
+# #Create Genus PLot  
+GenusPlot = p3 %>%
+  ggplot(aes(x = .value, y = Genus)) +
+  geom_vline(xintercept = vlines$.value, linetype = "dashed", colour="grey") +
+  stat_halfeye(alpha=0.7, size =0.5) +
+  # coord_cartesian(xlim =c(-5,5)) +
+  geom_label(data=vlines, aes(label=.label), fill="white", vjust=1.5) +
+  geom_label(data=labelGenus, aes(label=.group),fill="grey55", colour = "white", vjust=0.5, nudge_y =0.2, size=5) +
+  scale_fill_viridis_d() +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "bottom") +
+  ylab("Taxonomy") + xlab("P(Injury) : Log-Odds")
+GenusPlot
+
+# Generate the data fhe size plot from the model
+p4 = 
+  mod.brms2.Lrg2 %>% 
+  emmeans( ~ Size2) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(Size2 = factor(Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))) 
+
+# #Create Size PLot
+SizePlot =  p4 %>%  
+  ggplot(aes(x = .value, y = Size2, fill = Size2)) +
+  geom_vline(xintercept = vlines$.value, linetype = "dashed", colour="grey") +
+  stat_eye(alpha=0.7, size =0.5) + coord_flip() +
+  # coord_cartesian(xlim =c(-5,5)) +
+  geom_label(data=vlines, aes(label=.label), fill="white", hjust=0.5, nudge_y = -0.4) +
+  geom_label(data=labelSize, aes(label=.group),fill="grey55", colour = "white", size=5) +
+  scale_fill_viridis_d() +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none") +
+  ylab("Colony Size") + xlab("P(Injury) : Log-Odds")
+SizePlot
+
+# Generate the data fhe Year plot from the model
+p5 = 
+  mod.brms2.Lrg2 %>% 
+  emmeans( ~ Year) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() 
+
+# #Create Year PLot
+YearPlot = p5 %>%  
+  ggplot(aes(x = .value, y = Year, fill = Year)) +
+  geom_vline(xintercept = vlines$.value, linetype = "dashed", colour="grey") +
+  coord_cartesian(xlim =c(-5,5)) +
+  stat_eye(alpha=0.7, size =0.5) + coord_flip() +
+  geom_label(data=vlines, aes(label=.label), fill="white", hjust=0.5, nudge_y = -0.4) +
+  geom_label(data=labelYear, aes(label=.group),fill="grey55", colour = "white", vjust=0,size=5) +
+  scale_fill_manual(values = c("blue", "red")) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none") +
+  ylab("Year") + xlab("P(Injury) : Log-Odds")
+YearPlot
+
+lay = rbind(c(1,1,1,2,2),
+             c(1,1,1,2,2),
+             c(1,1,1,3,3),
+            c(1,1,1,3,3))
+
+gridExtra::grid.arrange(GenusPlot,SizePlot,YearPlot, layout_matrix = lay)
+g=gridExtra::arrangeGrob(GenusPlot,SizePlot,YearPlot, layout_matrix = lay)
+ggsave(file="Figures/FigureMod.tiff",g, dpi =300, width=11, height=8)
+ggsave(file="Figures/FigureMod.svg",g, dpi=300, width=11, height=8)
+ggsave(file="Figures/FigureMod.png",g, dpi=300, width=11, height=8)
+
+g = egg::ggarrange(GenusSizePlot,GenusYearPlot,nrow=2)
+ggsave(file="Figures/FigureInt.eps",g, dpi =300, width=8, height=8)
+ggsave(file="Figures/FigureInt.svg",g, dpi=300, width=8, height=8)
+ggsave(file="Figures/FigureInt.png",g, dpi=300, width=8, height=8)
+```
+
+```{r Write out Post Hoc results}
+write.csv(completters.Genus[["comparisons"]], "Data/Comp_Genus.csv", row.names = F)
+write.csv(completters.Size[["comparisons"]], "Data/Comp_Size.csv", row.names = F)
+write.csv(completters.Year[["comparisons"]], "Data/Comp_Year.csv", row.names = F)
+write.csv(completters.SizeGenus[["comparisons"]], "Data/Comp_GenusSize.csv", row.names = F)
+write.csv(completters.YearGenus[["comparisons"]], "Data/Comp_GenusYear.csv", row.names = F)
+```
+
+
+```{r Heat Map Rank Order Change}
+# Create Rank Order CHange based on Mean Proportion Injured 
+# Arrnage based on 2018/19 Levels
+arrange1819 = filter(dat.prop.InjRank, Year %in% "2018/19") %>% pull(Genus) %>% rev()
+dat.prop.InjRank$MeanInj = scales::percent_format()(dat.prop.InjRank$MeanInj)
+dat.prop.InjRank$Genus = factor(dat.prop.InjRank$Genus,levels = arrange1819)
+pRank1819 = ggplot(dat.prop.InjRank, aes(Year, Genus, fill = rev(Rank), label=paste(Rank,":", MeanInj))) +
+  geom_tile() +  scale_fill_distiller(palette = "Spectral") +
+  geom_label(fill="white", size =3) +
+  theme_light(base_size = 14) + ylab("Taxonomy")+ labs(x = "Year", fill="Rank Order") +
+  theme(
+    # axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), 
+    # legend.title = element_blank(),
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+ggsave(file="Figures/FigureRank1.tiff",pRank1819,dpi =300, width=6, height=8)
+ggsave(file="Figures/FigureRank1.svg",pRank1819, dpi=300, width=6, height=8)
+ggsave(file="Figures/FigureRank1.png",pRank1819, dpi=300, width=6, height=8)
+
+
+# Create Rank Order CHange based on Mean Proportion Injured 
+arrange1819 = filter(dat.prop.InjRank2, Year %in% "2018/19") %>% pull(Genus) %>% rev()
+dat.prop.InjRank2$Prop2 = scales::percent_format(accuracy = 0.1)(dat.prop.InjRank2$Prop)
+dat.prop.InjRank2$Genus = factor(dat.prop.InjRank2$Genus,levels = arrange1819)
+pRank1819.2 = ggplot(dat.prop.InjRank2, aes(Year, Genus, fill = rev(Rank2), label=paste(Rank2,":", Prop2))) +
+  geom_tile() +  scale_fill_distiller(palette = "Spectral") +
+  geom_label(fill="white", size =3) +
+  theme_light(base_size = 14) + ylab("Taxonomy")+ labs(x = "Year", fill="Rank Order") +
+  theme(
+    # axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), 
+    # legend.title = element_blank(),
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+ggsave(file="Figures/FigureRank2.tiff",pRank1819.2,dpi =300, width=6, height=8)
+ggsave(file="Figures/FigureRank2.svg",pRank1819.2, dpi=300, width=6, height=8)
+ggsave(file="Figures/FigureRank2.png",pRank1819.2, dpi=300, width=6, height=8)
+```
+
+```{r Spatial Model Results}
+# Lines to match percentage with log-odds ratio
+vlinesS = data.frame(.value=prob2logit(c(0.001,0.01,0.05,0.2,0.5, 0.8,0.95, 0.99)),
+                    .label=paste0(c(0.001,0.01,0.05,0.2,0.5, 0.8,0.95, 0.99)*100, "%"),
+                    REGION = "CSMP",
+                    Size2 = "Juv (<5cm)",
+                    Year = "2018/19")
+# Post hok tukey comparisons and compact letter display
+completters.ZoneReg = multcomp::cld(model_Sem1, Letters=letters, details=T)
+completters.RegZone = multcomp::cld(model_Sem4, Letters=letters, details=T)
+completters.REG = multcomp::cld(model_Sem2, Letters=letters, details=T)
+completters.Zone = multcomp::cld(model_Sem3, Letters=letters, details=T)
+
+# Gnerate labels for the plot
+labelSizeGenus <- data.frame(
+  completters.SizeGenus[["emmeans"]][,c(1,2,8)],
+  .value = -9) %>% mutate(.group = str_trim(.group)) %>%
+  spread(Size2, .group) %>%
+  mutate(.group = paste(`Juv (<5cm)`, `5-40cm`,`>40cm`, sep = ","))
+
+# Generate Data for the REGION*Zone plot from the model
+pSpat = 
+  mod.Spatial %>% 
+  emmeans( ~ REGION|Zone) %>%
+  gather_emmeans_draws() #%>%
+
+# Gneerate REGION*Zone PLot
+SpatialPlot = pSpat %>%
+  ggplot(aes(y = .value, x = REGION, fill = Zone)) +
+  geom_hline(yintercept = vlines$.value, linetype = "dashed", colour="darkgrey") +
+  stat_eye(alpha=0.7, size =0.5) +
+  coord_cartesian(ylim =c(-5,0)) +
+  geom_label(data=vlinesS, aes(label=.label), fill="white", hjust=0, nudge_x = -0.5) +
+  # geom_label(data=labelSizeGenus, aes(label=.group),fill="grey55", colour = "white", vjust=0.5, nudge_y =0.2, size=5) +
+  scale_fill_viridis_d() +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "right") + guides(fill=guide_legend(title="Habitat")) +
+  ylab("P(Injury) : Log-Odds") + xlab("Marine Park")
+SpatialPlot
+
+# Bosplot showing the reef-level variation
+SpatialPlot2 = ggplot(dat.prop.Spatial, aes(x=Reef, y=MeanInj, colour=Reef)) + 
+  # geom_pointrange(aes(ymin = MeanInj-SEInj, ymax = MeanInj+SEInj), 
+  #                 position = position_dodge()) + 
+  geom_boxplot() + theme_bw(base_size = 14) +
+  facet_grid(Zone~REGION, scales = "free_x") + ylab("Proportion of Injured Colonies") +
+  theme(legend.position = "none", 
+        axis.text.x = element_text(angle=90, hjust=1, vjust=0.5))
+
+ggsave(file="Figures/FigureSpatial.tiff",SpatialPlot,dpi =300, width=6, height=8)
+ggsave(file="Figures/FigureSpatial.svg",SpatialPlot, dpi=300, width=6, height=8)
+ggsave(file="Figures/FigureSpatial.png",SpatialPlot, dpi=300, width=6, height=8)
+
+ggsave(file="Figures/FigureSpatial2.tiff",SpatialPlot2,dpi =300, width=8, height=8)
+ggsave(file="Figures/FigureSpatial2.svg",SpatialPlot2, dpi=300, width=8, height=8)
+ggsave(file="Figures/FigureSpatial2.png",SpatialPlot2, dpi=300, width=8, height=8)
+
+bayes_R2(mod.Spatial)
+r2.mod = performance::r2_bayes(mod.Spatial)
+
+
+```
+
+
+
+## EVERYTHING PAST HERE CAN BE IGNORED
+
+```{r}
+library(nlme)
+dat.mod.Spat = dat.mod.sub %>%
+  group_by(Year, REGION, Reef, Site, Zone, Transect, Genus, Size2) %>%
+  summarise(nCol = n(),
+            nInj = sum(Injured),
+            pInj = nInj/nCol) %>%
+  mutate(ArcSin = asin(sqrt(pInj)))
+hist(dat.mod.Spat$ArcSin)
+dat.lme = lme(ArcSin~Genus, random = ~1|REGION/Reef/Site/Zone/Transect, dat.mod.Spat, method = "REML")
+summary(dat.lme)
+data.nest.aov = aov(ArcSin~Genus + Error(REGION/Reef/Site/Zone/Transect), dat.mod.Spat)
+summary(data.nest.aov)
+```
+
+```{r Summary Data MIGHT NOT NEED}
+
+
+
+# Create ranking based on mean prop injured
+dat.prop.InjRank = dat.long %>%
+  filter(Genus %in% dat.arrangetaxa) %>% 
+  filter(!(Year %in% "2019" & Site %in% dat.sites.repeat)) %>%
+  mutate(Year = factor(ifelse(Year==2020, "2020", "2018/19"))) %>%
+  group_by(Reef,Site, Year, Genus) %>% 
+  summarise(Total = sum(Number),
+            NumberInj = sum(NoInjured)) %>%
+  mutate(PropInj = NumberInj/Total) %>%
+  group_by(Year, Genus) %>%
+  summarise(TotalColonies = sum(Total),
+            nSites = n(),
+            MeanInj = mean(PropInj),
+            SEInj = sd(PropInj)/sqrt(nSites)) %>%
+  arrange(Year, -MeanInj) %>%
+  mutate(Rank = 1:27)
+
+# Make Summary plot of incidence of injuries for each Taxa/Size Pairing
+dat.prop.InjRank2= dat.long %>% 
+  filter(Genus %in% dat.arrangetaxa) %>% 
+  # filter(Genus %in% taxa) %>%
+  #Filter out 2020 and the sites that were visited in both 2018 and 2019
+  #filter(!Year %in% "2020") %>%
+  filter(!(Year %in% "2019" & Site %in% dat.sites.repeat)) %>%
+  mutate(Year = factor(ifelse(Year==2020, "2020", "2018/19"))) %>%
+  group_by(Reef, Site,Year, Genus) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured)) %>%
+  mutate(PropInjured = NumberInjured/Total) %>%
+  group_by(Year,Genus) %>%
+  summarise(TotalColonies = sum(Total),
+            TotalInjured = sum(NumberInjured),
+            Prop = TotalInjured/TotalColonies,
+            nSites = n(),
+            nReefs = length(unique(as.character(Reef))),
+            MeanInj = mean(PropInjured),
+            SEInj = sd(PropInjured)/sqrt(nSites)) %>%
+  arrange(Year,-MeanInj) %>%
+  mutate(Rank = 1:27) %>%
+  arrange(Year, -Prop) %>%
+  mutate(Rank2 = 1:27)
+
+dat.prop.Spatial = dat.long %>%
+  filter(Genus %in% dat.arrangetaxa) %>% 
+  filter(!(Year %in% "2019" & Site %in% dat.sites.repeat)) %>%
+  mutate(Year = factor(ifelse(Year==2020, "2020", "2018/19")),
+         Zone = factor(toupper(Zone))) %>%
+  group_by(REGION,Reef,Site, Zone, Transect) %>% 
+  summarise(Total = sum(Number),
+            NumberInj = sum(NoInjured)) %>%
+  mutate(PropInj = NumberInj/Total) %>%
+  group_by(REGION,Reef,Site, Zone) %>%
+  summarise(TotalColonies = sum(Total),
+            nSites = n(),
+            MeanInj = mean(PropInj),
+            SEInj = sd(PropInj)/sqrt(nSites)) 
+
+dat.InjSize= dat.long %>% 
+  filter(Genus %in% dat.arrangetaxa) %>%
+  #Filter out 2020 and the sites that were visited in both 2018 and 2019
+  filter(!Year %in% "2020") %>%
+  filter(!(Year %in% "2019" & Site %in% dat.sites.repeat)) %>%
+  group_by(Cause, Genus, Size2) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured)) #%>%
+
+# Create toal injury pooled across all GENUS and SIZE
+dat.Inj.Total = dat.long.edit %>% 
+  summarise(Size2 = "Overall",
+            Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            PropInjured = NumberInjured/Total) 
+# Create toal injury for each size pooled across all GENUS, then bind the Total for Pie charts
+dat.InjSize= dat.long.edit %>% 
+  group_by(Size2) %>%
+  summarise(Total = sum(Number),
+            NumberInjured = sum(NoInjured),
+            PropInjured = NumberInjured/Total) %>% 
+  bind_rows(dat.Inj.Total)
+```
+
+```{r Old Models}
+library(splitstackshape)
+library(data.table)
+library(lme4)
+library(brms)
+library(emmeans)
+library(performance)
+# For this we are fitting a nested anova in BRMS we will nest trasnest in habitiat in site in reef in region, with size year as fixed factors
+dat.long.editALL = bind_rows(dat.long.edit, dat.long.editBL) %>%
+  mutate(Year = lubridate::year(Date),
+         Year = factor(ifelse(Year==2020, "2020", "2018/19")),
+         Zone = gsub("crest", "Crest", Zone),
+         Zone = gsub("slope", "Slope", Zone),
+         Zone = factor(Zone))
+
+
+# Create Dat.mod which has a row for each observation
+dat.mod = dat.long.editALL %>% mutate (Injured = factor(Injured)) %>% 
+  group_by(Year,REGION,Region,Reef,Site,Zone, Transect,Genus,Size2, Injured) %>%
+  summarise(Colonies = sum(Number))
+dat.mod = as.data.table(dat.mod)
+dat.mod = expandRows(dat.mod, "Colonies")
+dat.mod = dat.mod %>% 
+  # filter(Genus %in% dat.arrangetaxa)%>%
+  #  select(-c(1,5,7)) %>%
+  mutate(Injured = as.numeric(as.character(Injured)), 
+          Reef = factor(Reef), 
+          Genus = factor(Genus),
+          Size2 = factor(Size2)) 
+  
+data.nest1.glmer = lme4::glmer(Injured ~  (1|Region/Reef/Site/Zone/Transect), 
+                               family = binomial(), data = dat.mod)
+data.nest2.glmer = lme4::glmer(Injured ~ Year + Size2 + (1|Region/Reef/Site/Zone/Transect), 
+                               family = binomial(), data = dat.mod)
+data.nest3.glmer = lme4::glmer(Injured ~ Year*Size2 + (1|Region/Reef/Site/Zone/Transect), 
+                               family = binomial(), data = dat.mod)
+
+
+# Fit Full Model for top 5 genus
+
+summary(data.nest2.glmer)
+VarCorr(data.nest1.glmer)
+VarCorr(data.nest2.glmer)
+VarCorr(data.nest3.glmer)
+MuMIn::r.squaredGLMM(data.nest1.glmer)
+performance::r2(data.nest1.glmer)
+performance::r2(data.nest2.glmer)
+performance::r2(data.nest3.glmer)
+
+performance::check_model(data.nest2.glmer)
+
+library(sjPlot)
+plot(residuals(data.nest1.glmer, type='pearson') ~ predict(data.nest1.glmer, type='link'))
+```
+
+```{r Extra Plots}
+ggplot(dat.prop.Inj, aes(x=Genus, y=MeanInj)) +
+  geom_hline(aes(yintercept = hlines$Med), linetype = "dashed")+
+  geom_linerange(aes(ymin = MeanInj-SEInj, 
+                     ymax = MeanInj+SEInj)) +
+  geom_point(aes(color=MeanInj), size=3, alpha=1) +
+  scale_colour_distiller(palette = "Spectral",labels=scales::percent) +
+  theme_light(base_size = 14) + xlab("Taxonomy")+ labs(y = "Mean Percent Injured") +
+  coord_flip() +
+  # facet_grid(~CatBleach) + 
+  scale_y_continuous(labels = scales::percent, breaks = c(0,0.05,0.1)) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), legend.title = element_blank(),
+    legend.position = "bottom",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+ggsave(filename = "Figures/PropInj.png", device = "png", width = 8, height = 8, dpi = 300) 
+
+ggplot(dat.prop.InjSize, aes(x=Genus, y=MeanInj)) +
+  geom_hline(aes(yintercept = hlines$Med), linetype = "dashed")+
+  geom_linerange(aes(ymin = MeanInj-SEInj, 
+                     ymax = MeanInj+SEInj)) +
+  geom_point(aes(color=MeanInj), size=3, alpha=1) +
+  scale_colour_distiller(palette = "Spectral",labels=scales::percent) +
+  theme_light(base_size = 14) + xlab("Taxonomy")+ labs(y = "Mean Percent Injured") +
+  coord_flip() + facet_wrap(~Size2, ncol = 3) +
+  # facet_grid(~CatBleach) + 
+  scale_y_continuous(labels = scales::percent, breaks = c(0,0.05,0.1)) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), legend.title = element_blank(),
+    legend.position = "bottom",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+```
+

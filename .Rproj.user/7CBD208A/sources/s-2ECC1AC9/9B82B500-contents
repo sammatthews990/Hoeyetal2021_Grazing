@@ -1,0 +1,216 @@
+---
+title: "Hoeyetal2021_Herbivory"
+author: "Samuel Matthews"
+date: "2 December 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Load and Wrangle Data}
+library(tidyverse)
+library(plyr)
+library(reshape2)
+library(lme4)
+library(glmmTMB)
+library(emmeans)
+library(dismo)
+library(gbm)
+library(corrplot)
+library(gridExtra)
+library(tidyverse)
+dat.benth = readxl::read_xlsx("Algal browsing habitat_data.xlsx")
+dat.assay = readxl::read_xlsx("Algal browsing habitat_data.xlsx", sheet = 2) %>%
+  rename(Transect = Replicate)
+  
+ggplot(dat.assay, aes(x=Site, y=Herb_loss_g)) + geom_boxplot()
+ggplot(dat.assay, aes( y=Herb_loss_g)) + geom_boxplot()
+ggplot(dat.assay, aes(x=Site, y=Herb_loss_prop)) + geom_boxplot()
+ggplot(dat.assay, aes( y=Herb_loss_prop)) + geom_boxplot()
+
+
+corrplot(cor(dat.gbm[,c(3:16)]),method = 'number')
+# BRT Of Drivers of Herbivory
+dat.gbm = dat.benth %>% 
+  left_join(dplyr::select(dat.assay, c(1:2,11:22)), by = c("Site", "Transect")) %>%
+  na.omit() %>% as.data.frame() %>%
+  mutate(Categorical = as.factor(Categorical),
+         TotalBB.Int = round(Total_Biomassbites,0))
+colnams = colnames(dat.gbm)
+colnams=colnams %>% str_replace_all("[^[A-Za-z]]", " ") %>% str_replace_all(fixed(" "), "")
+colnames(dat.gbm) = colnams
+
+mod.gbm = gbm.step(dat.gbm, gbm.x = c(3, 5:13,15:16), gbm.y = 17, family = "gaussian", 
+                   learning.rate = 0.001)
+summary(mod.gbm)
+gbm.plot(mod.gbm, n.plots = 6, write.title = T,
+  show.contrib = T, y.label = "fitted function")
+
+mod.gbm2 = gbm.step(dat.gbm, gbm.x = c(3, 5:13,15:16), gbm.y = "TotalBBInt", family = "poisson", 
+                   learning.rate = 0.001)
+summary(mod.gbm2)
+```
+
+```{r Bootstrap BRT}
+# Boostrap the BRT 1000 times to build confidence intervals
+# devtools::install_github("JBjouffray/ggBRT")
+# library(ggBRT)
+# library(dismo)
+
+psych::multi.hist(dat.gbm$Herblossg)
+psych::multi.hist(dat.gbm$TotalBiomassbites)
+mod.gbm = gbm.step(dat.gbm, gbm.x = c(3, 5:13,15:16), gbm.y = 17, family = "gaussian", 
+                   learning.rate = 0.001)
+mod.gbm2 = gbm.step(dat.gbm, gbm.x = c(3, 5:13,15:16), gbm.y = "TotalBBInt", family = "poisson", 
+                   learning.rate = 0.001)
+mod.gbm.KV = gbm.step(dat.gbm, gbm.x = c(3, 5:13,15:16), gbm.y = "Kvaigbites", family = "poisson", 
+                   learning.rate = 0.001)
+mod.gbm.SD = gbm.step(dat.gbm, gbm.x = c(3, 5:13,15:16), gbm.y = "Sdolbites", family = "poisson", 
+                   learning.rate = 0.0001)
+mod.gbm.SC = gbm.step(dat.gbm, gbm.x = c(3, 5:13,15:16), gbm.y = "Scanbites", family = "poisson", 
+                   learning.rate = 0.001)
+mod.gbm.NU = gbm.step(dat.gbm, gbm.x = c(3, 5:13,15:16), gbm.y = "Nunibites", family = "poisson", 
+                   learning.rate = 0.0001)
+ggPerformance(Herbivory=mod.gbm, Bites=mod.gbm2, KV = mod.gbm.KV, SD=mod.gbm.SD, SC=mod.gbm.SC, NU=mod.gbm.NU)
+brt1.prerun<- plot.gbm.4list(mod.gbm)
+brt1.boot <- gbm.bootstrap.functions(mod.gbm, list.predictors=brt1.prerun, n.reps=100)
+
+# Draw partial dependency plots a given predictor (i.e., "Complexity")
+PD.Herb = ggPD_boot(mod.gbm, n.plots=6, list.4.preds=brt1.prerun, booted.preds=brt1.boot$function.preds, 
+          type.ci = "ribbon", smooth = T,alpha.ci = 0.4, cex.line = 1,y.label = "Herbivore Loss (g)",
+          rug = T)
+
+brt2.prerun<- plot.gbm.4list(mod.gbm2)
+brt2.boot <- gbm.bootstrap.functions(mod.gbm2, list.predictors=brt2.prerun, n.reps=100)
+ggPerformance(Regime1=mod.gbm, Regime2=mod.gbm2)
+# Draw partial dependency plots a given predictor (i.e., "Complexity")
+PD.Bites = ggPD_boot(mod.gbm2, n.plots=6, list.4.preds=brt2.prerun, booted.preds=brt2.boot$function.preds, 
+          type.ci = "ribbon", smooth = T,alpha.ci = 0.4, cex.line = 1,y.label = "Log (Biomass Bites)", 
+          rug = T)
+
+brtKV.prerun<- plot.gbm.4list(mod.gbm.KV)
+brtKV.boot <- gbm.bootstrap.functions(mod.gbm.KV, list.predictors=brtKV.prerun, n.reps=100)
+# Draw partial dependency plots a given predictor (i.e., "Complexity")
+PD.KVBites = ggPD_boot(mod.gbm.KV, n.plots=6, list.4.preds=brtKV.prerun, booted.preds=brtKV.boot$function.preds, 
+          type.ci = "ribbon", smooth = T,alpha.ci = 0.4, cex.line = 1,y.label = "Log (KVBites)", 
+          rug = T)
+
+brtSC.prerun<- plot.gbm.4list(mod.gbm.SC)
+brtSC.boot <- gbm.bootstrap.functions(mod.gbm.SC, list.predictors=brtSC.prerun, n.reps=100)
+# Draw partial dependency plots a given predictor (i.e., "Complexity")
+PD.SCBites = ggPD_boot(mod.gbm.SC, n.plots=6, list.4.preds=brtSC.prerun, booted.preds=brtSC.boot$function.preds, 
+          type.ci = "ribbon", smooth = T,alpha.ci = 0.4, cex.line = 1,y.label = "Log (SCBites)", 
+          rug = T)
+
+brtSD.prerun<- plot.gbm.4list(mod.gbm.SD)
+brtSD.boot <- gbm.bootstrap.functions(mod.gbm.SD, list.predictors=brtSD.prerun, n.reps=100)
+# Draw partial dependency plots a given predictor (i.e., "Complexity")
+PD.SDBites = ggPD_boot(mod.gbm.SD, n.plots=6, list.4.preds=brtSD.prerun, booted.preds=brtSD.boot$function.preds, 
+          type.ci = "ribbon", smooth = T,alpha.ci = 0.4, cex.line = 1,y.label = "Log (SDBites)", 
+          rug = T)
+
+brtNU.prerun<- plot.gbm.4list(mod.gbm.NU)
+brtNU.boot <- gbm.bootstrap.functions(mod.gbm.NU, list.predictors=brtNU.prerun, n.reps=100)
+# Draw partial dependency plots a given predictor (i.e., "Complexity")
+PD.NUBites = ggPD_boot(mod.gbm.NU, n.plots=6, list.4.preds=brtNU.prerun, booted.preds=brtNU.boot$function.preds, 
+          type.ci = "ribbon", smooth = T,alpha.ci = 0.4, cex.line = 1,y.label = "Log (NUBites)", 
+          rug = T)
+
+ggMultiInfluence(Herbivory=mod.gbm, Bites=mod.gbm2, KV = mod.gbm.KV, SD=mod.gbm.SD, SC=mod.gbm.SC, NU=mod.gbm.NU)
+```
+
+# Coral Composition compared to Herbivory
+
+
+```{r Coral Composition}
+library(vegan)
+library(ggrepel)
+# Identify median herbivory --> 8.65
+dat.assay = dat.assay %>%
+  mutate(HerbCat2 = ifelse(Herb_loss_g > 9.8, "High", "Low"))
+dat.assay.sum = dat.assay %>% 
+  group_by(Site) %>%
+  dplyr::summarise(mn = mean(Herb_loss_g),
+                   med = median(Herb_loss_g))%>%
+  mutate(HerbCat =ifelse(med > 18.99, "High", ifelse(med > 6.13, "Med","Low"))) %>% 
+  mutate(Site2 = substr(Site, 5, nchar(Site)))%>% arrange(med)
+dat.benth = dat.benth %>% left_join(dat.assay.sum) %>% dplyr::select(-mn)
+dat.benth = dat.benth %>% left_join(dplyr::select(dat.assay, Site, Transect, HerbCat2))
+summary(dat.assay.sum$mn)
+summary(dat.assay$Herb_loss_g)
+
+dat.mds.info = dat.benth %>% dplyr::select(Site, Transect, HerbCat2, HerbCat) 
+dat.mds = dat.benth %>% ungroup() %>% dplyr::select(3:11)
+dat.mds = dat.mds/20
+colnames(dat.mds)[2] = "Massive porites"
+
+mds = metaMDS(dat.mds, k = 2, autotransform=T, trymax = 60, distance = "bray")
+
+mdsvectors = data.frame(mds$species) %>% rownames_to_column("Species") %>%
+  mutate(distance = sqrt((MDS1)^2 + (MDS2)^2))
+mdspoints = data.frame(scores(mds))
+mdspoints = bind_cols(mdspoints, dat.mds.info)
+mdspoints$Cover<-rowSums(dat.mds[,c(1:ncol(dat.mds))])
+mdspoints$HerbCat = factor(mdspoints$HerbCat, levels = c("Low", "Med", "High"))
+MDS.plot <- ggplot()+
+    geom_segment(data=mdsvectors, aes(xend=0, yend=0, x=MDS1, y=MDS2), col="grey")+
+    stat_ellipse(data=mdspoints, geom = "polygon", type = "t", level = .5,
+               aes(x=NMDS1, y=NMDS2, colour=HerbCat, fill = HerbCat), alpha = .2) +
+    xlab("NMDS1") + ylab("NMDS2") +
+    # geom_polygon(data=mdspoints, geom = "polygon", type = "t", level = .5,
+    #            aes(x=NMDS1, y=NMDS2, colour=Year, fill = Year), alpha = .2) +
+    geom_point(data=mdspoints, aes(x=NMDS1, y=NMDS2, colour = HerbCat), size = 3) +
+    scale_radius(range=c(0,10), name = "Coral cover (%)", guide = FALSE) +
+    scale_color_viridis_d(option = "D", name = "Herbivory Level", direction = -1) + 
+    scale_fill_viridis_d(option = "D",name = "Herbivory Level", direction = -1) + 
+    ggrepel::geom_label_repel(data=mdsvectors %>% top_n(10, distance), aes(x=MDS1, y=MDS2, label=Species), 
+                    col="black", size=4, segment.colour = NA, box.padding = .2) + 
+    theme_classic(base_size=14) + 
+    theme(legend.position = c(0.85,0.9), legend.background = element_blank(), legend.key.size = unit(.5, "cm"))
+
+NMDS.plot <- ggplot()+
+    geom_point(data=mdspoints, aes(x=NMDS1, y=NMDS2), col="white")+
+    geom_segment(data=mdsvectors, aes(xend=0, yend=0, x=MDS1, y=MDS2), col="grey", alpha = .2)+
+    geom_segment(data=mdsvectors %>% top_n(5, distance), aes(xend=0, yend=0, x=MDS1, y=MDS2), col = "grey60", alpha = 1) +
+    geom_text_repel(data=mdsvectors %>% top_n(5, distance), aes(x=MDS1, y=MDS2, label=Species), col="black", size=2.5, segment.colour = NA, box.padding = .2) + theme_classic()
+
+# ggpubr::ggarrange(MDS.plot, NMDS.plot, widths = c(2,1))
+ggsave("Figures/CoralComp.png",MDS.plot, device = "png", 
+       width = 8, height = 6, dpi=300)
+vegan::anosim(na.omit(dat.mds), grouping = dat.mds.info$HerbCat)
+vegan::adonis(dat.mds ~ as.factor(HerbCat), data = dat.mds.info)
+pairwiseAdonis::pairwise.adonis(dat.mds, as.factor(dat.mds.info$HerbCat))
+mds$stress
+```
+
+```{r Site Variability Boxplot}
+dat.assay = dat.assay %>% mutate(Site2 = substr(Site, 5, nchar(Site))) %>% left_join(dat.assay.sum) %>%
+  mutate(Site2 = factor(Site2, levels=dat.assay.sum$Site2))
+p1 = ggplot(dat.assay, aes(x=Site2, y=Herb_loss_g, fill=Site2)) + 
+  geom_hline(aes(yintercept = c(6.1)), linetype="dashed", size=1, colour = "grey55") +
+  geom_hline(aes(yintercept = c(19)), linetype="dashed", size=1, colour = "grey55") +
+  geom_boxplot() + xlab("Site") + ylim(c(-10,35)) + ylab("Algae loss due to Herbivory (g)") +
+  # scale_color_viridis_d(option = "D", name = "Herbivory Level") + 
+  scale_fill_viridis_d(option = "D",name = "") + theme_bw() + theme(legend.position = "none") 
+p2 = ggplot(dat.assay) +
+  geom_histogram(aes(x = Herb_loss_g, y = (..count..)/sum(..count..)),
+                 position = "identity", binwidth = 2, alpha = 0.3,
+                 color = "black")  + xlim(c(-10,35)) +
+  geom_label(label = c("High"), y=c(0.1), x = c(33), label.padding = unit(0.55, "lines"),
+             label.size = 1.5, colour = "white", fill = "#FDE725") +
+  geom_label(label = c("Low"), y=c(0.1), x = c(-8), label.padding = unit(0.55, "lines"),
+             label.size = 1.5, colour = "white", fill = "#450E57") +
+  geom_label(label = c("Med"), y=c(0.1), x = c(12), label.padding = unit(0.55, "lines"),
+             label.size = 1.5, colour = "white", fill = "#228D8D") +
+  ylab("Relative Frequency") + 
+  geom_vline(aes(xintercept = c(6.1)), linetype="dashed", size=1, colour = "grey55") +
+  geom_vline(aes(xintercept = c(19)), linetype="dashed", size=1, colour = "grey55") +
+  theme_bw() + coord_flip() + theme(axis.title.y = element_blank(), axis.text.y = element_blank())
+g = egg::ggarrange(p1, p2, widths = c(3,1))
+ggsave("Figures/HerbLoss.png", plot = g, device = "png", 
+       width = 8, height = 6, dpi=300)
+```
+
+

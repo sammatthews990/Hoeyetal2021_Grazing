@@ -1,0 +1,50 @@
+---
+title: "Hoeyetal2021"
+output: html_document
+---
+
+```{r Load and Wrangle Data}
+library(tidyverse)
+library(brms)
+library(emmeans)
+library(gridExtra)
+library(tidybayes)
+
+dat.prop = read.csv("Data/Propagules.csv")
+
+m1priors = get_prior(formula =proportion.remaining ~ Treatment*Habitat + Site, 
+                    data=dat.prop, family="gamma")
+mod.brms.surv = brm(formula =proportion.remaining ~ Treatment*Habitat + Site, 
+                    data=dat.prop, family="gamma", sample_prior = T,
+                    prior = c(prior(normal(0, 5), class = "Intercept"),
+                              prior(normal(0, 5), class = "b"), 
+                              prior(gamma(0.1, 0.1), class = "shape")),
+                    warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2
+                    # control = list(adapt_delta = 0.995,
+                    #                max_treedepth=15)
+                    )
+# perf.brms1 = performance::check_model(mod.brms.surv)
+summary(mod.brms.surv)
+p1 = dat.prop %>%
+  modelr::data_grid(Treatment, Habitat, Site) %>%
+  add_fitted_draws(mod.brms.surv, re_formula = NULL, scale = "response") 
+p2 = dat.prop %>%
+  modelr::data_grid(Treatment, Habitat, Site) %>%
+  add_fitted_draws(mod.brms.surv, re_formula = NULL, scale = "response") %>%
+  compare_levels(.value, by = Treatment)
+
+ggplot(p1, aes(y = .value, x = Site, fill = Treatment)) +
+  theme_bw(base_size = 14) + 
+  geom_point(data=dat.prop, aes(y=proportion.remaining, x=Site, colour=Treatment), position = position_jitterdodge(),pch=1) +
+  stat_eye(alpha=0.7, position = position_dodge(width = 0.7)) + 
+  scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
+  theme(legend.position = "right",axis.title.x = element_blank()) +facet_grid(~Habitat) +
+  ylab("Proportion of progagules remaining")   
+
+ggplot(p2, aes(y = -.value, x = Site)) +
+  stat_eye(alpha=0.7, position = position_dodge(width = 0.7)) + 
+  theme_bw(base_size = 14) + geom_hline(yintercept=0, linetype="dashed") +
+  # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
+  theme(legend.position = "right", axis.title.y = element_blank()) +facet_wrap(~Habitat, ncol = 1) +
+  ylab("Difference in proportion of propagules \nremaining (Caged-Exposed)") +coord_flip()
+```

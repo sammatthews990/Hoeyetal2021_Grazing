@@ -1,0 +1,1530 @@
+---
+title: "Burnetal2020_Bleaching"
+author: "Samuel Matthews"
+date: "28 April 2020"
+output: html_document
+---
+
+```{r setup and data wrangling, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readxl)
+
+### Hugo Harrison cleaned up the data for me. Our code is below ###
+
+coral.health = read_excel("Data/Coral Health and Recruitment Surveys 2018-2020.xlsx", sheet = "Raw Data")
+SectorRegion = read_excel("Data/reef-region.xlsx", sheet = "Sheet1")
+load("Data/site.info.Rdata")
+
+
+dat.2.edit = coral.health %>% select(-'#') %>%
+  mutate(`Juv (<5cm)` = replace(`Juv (<5cm)`, is.na(`Juv (<5cm)`), 0),
+                        `<20cm` = replace(`<20cm`, is.na(`<20cm`), 0),
+                        `20-40cm` = replace(`20-40cm`, is.na(`20-40cm`), 0),
+                        `40-60cm` = replace(`40-60cm`, is.na(`40-60cm`), 0),
+                        `>60cm` = replace(`>60cm`, is.na(`>60cm`), 0)) %>%
+  mutate(Reef = gsub("Bouganville", "Bougainville", Reef),
+         Reef = gsub("East Diamond", "Diamond", Reef),
+         Reef = gsub(" Island", "", Reef),
+         Reef = gsub("Hickson", "Hixon", Reef),
+         Reef = gsub("Yamacuta", "Yamacutta", Reef),
+         Site = gsub("Hickson", "Hixon", Site),
+         `Coral Health` = paste0(toupper(substr(`Coral Health`, 1, 1)), 
+                                 substr(`Coral Health`, 2, nchar(`Coral Health`))),
+         Year = lubridate::year(Date)) %>%
+  mutate(Site = paste(Reef, Site, sep = " ")) %>%
+  mutate(Cause = gsub("Unkown", "Unknown", Cause)) %>%
+  left_join(SectorRegion, by = "Reef") %>% 
+#SectorRegion is a csv files with columns SectorRegion(containing ‘North CSMP’, ‘Central CSMP’, ‘South GBR’ etc) and the second column was the corresponding Reefs. 
+  mutate(Year = as.factor(Year),
+         Reef = as.factor(Reef),
+         Region = as.factor(Region)) %>%
+         # Region = factor(Region, 
+         #                  levels = c("Southern Coral Sea", "Central Coral Sea", "Northern Coral Sea", 
+         #                             "Southern Great Barrier Reef", "Central Great Barrier Reef", 
+         #                             "Northern Great Barrier Reef"))) %>%
+  mutate(`Coral Health` = as.factor(`Coral Health`),
+         `Coral Health` = factor(`Coral Health`, 
+                                 levels = c("H - Healthy (<5% Recent Mortality)", "P - Pale", 
+                                            "A - <50% Bleached", "B - 50-99% Bleached", "C - 100% Bleached", 
+                                            "D - 5-50% Recent mortality", "E - 50-99% Recent Mortality", 
+                                            "F - 100% Recent Mortality"))) 
+
+
+save(dat.2.edit, file = "Data/CleanData.Rdata")
+
+#Filter out Mortality 'cause' that were not associated with coral bleaching
+
+mortality.causes = dat.2.edit %>% filter(! is.na(Cause)) %>% select(`Coral Health`, Cause) %>% 
+  group_by(Cause) %>%
+  summarise(n = n()) %>%
+  filter(! Cause %in% c("Bleaching", "Bleached", "Unknown")) %>% pull(Cause)
+
+#clean up some more- filter the 2020 data only, take out soft corals, simplify genera and tidy up the health categories. 
+
+dat.2 = dat.2.edit %>% 
+  filter(Year == "2020") %>%
+  #Remove soft corals:
+  filter(! Genus %in% c("Nephthea", "Effloutanaria", "Lobophytum", "Palythoa", "Sarcophyton", "Sinularia", 
+                        "Soft coral - other", "Distichopora", "Efflatounaria",
+                        "Klyxum", "Soft - branching", "Soft - other", "Isis", 
+                        "Tubipora", "Xenia", "Briaria", "Efflatounaria?",
+                        "Millepora", "Rhytisma")) %>%
+  #Simplify genera
+  mutate(Genus = gsub("Millepora - branching", "Millepora", Genus),
+         Genus = gsub("Millepora - encrusting", "Millepora", Genus),
+         Genus = gsub("Millepora - encrusting with uprights", "Millepora", Genus),
+         Genus = gsub("Montipora - branching", "Montipora", Genus),
+         Genus = gsub("Montipora - encrusting", "Montipora", Genus),
+         Genus = gsub("Montipora - other", "Montipora", Genus),
+         Genus = gsub("Other scleractinian", "Other Scleractinia", Genus),
+         Genus = gsub("Other Scleractinian", "Other Scleractinia", Genus),
+         Genus = gsub("Porites - encrusting with uprights", "Porites rus", Genus),
+         Genus = gsub("Porites with uprights", "Porites rus", Genus),
+         Genus = gsub("Turbinarea", "Turbinaria", Genus)) %>%
+
+  #Filter out mortality not caused by bleaching
+  #Delete categories D & E ‘Unknown’ and keep category F - unknown
+  filter(! Cause %in% mortality.causes) %>%
+  #filter(! CoralHealth == "D - 5-50% Recent mortality" & ! Cause == "Unknown" ) %>%
+  #filter(! CoralHealth == "E - 50-99% Recent Mortality" & ! Cause == "Unknown" ) %>%
+  rename(CoralHealth = `Coral Health`) %>%
+  mutate(CoralHealth = gsub("H - ", "", CoralHealth),
+         CoralHealth = gsub("(<5% Recent Mortality)", "", CoralHealth),
+         CoralHealth = gsub(" \\(\\)", "", CoralHealth),
+         CoralHealth = gsub("P - Pale", "Pale", CoralHealth),
+         CoralHealth = gsub("A - <50% Bleached", "1-50% bleached", CoralHealth),
+         CoralHealth = gsub("B - 50-99% Bleached", "51-99% bleached", CoralHealth),
+         CoralHealth = gsub("C - 100% Bleached", "100% bleached", CoralHealth),
+         CoralHealth = gsub("D - 5-50% Recent mortality", "5-50% partial mortality", CoralHealth),
+         CoralHealth = gsub("E - 50-99% Recent Mortality", "50-99% partial mortality", CoralHealth),
+         CoralHealth = gsub("F - 100% Recent Mortality", "Recently dead", CoralHealth)) %>%
+  mutate(CoralHealth = factor(CoralHealth, 
+                              levels = c("Healthy", "Pale", "1-50% bleached", "51-99% bleached", 
+                                         "100% bleached", "5-50% partial mortality", 
+                                         "50-99% partial mortality", "Recently dead"))) %>%
+  
+  mutate(Zone = str_replace(Zone, "crest", "Crest"),
+         Zone = str_replace(Zone, "slope", "Slope")) #%>%
+
+# Convert to long format
+dat.long = dat.2 %>% 
+  tidyr::gather(key = "Size", value = "Number", -c(1:8, 14:18)) %>%
+  mutate(REGION = gsub(".*CSMP.*", "CSMP", Region),
+         REGION = gsub(".*GBR.*", "GBR", REGION),
+         Size = factor(Size, levels = c("Juv (<5cm)","<20cm","20-40cm","40-60cm",">60cm")),
+         Region = factor(Region, levels = c("North CSMP", "Central CSMP", "South CSMP", 
+                            "North GBR", "Central GBR", "South GBR" )),
+         Bleached = ifelse(CoralHealth %in% "Healthy", 0,1),
+         NoBleached = Number*Bleached) %>%
+  mutate(Genus = recode(Genus, Fungia = "Fungidae"))
+
+```
+
+```{r Create Summary Tables}
+# Proportiong of Corals Bleached at Transect level per size class - all taxa combined
+dat.prop = dat.long %>% ungroup() %>%
+  group_by(REGION, Region, Reef,Genus, Site, Zone, Size) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>%
+  mutate(PropBleached = NumberBleached/Total)
+
+# Reef level proportion bleaching - all taxa combined
+dat.prop.reef = dat.long %>% ungroup() %>%
+  group_by(REGION, Region, Reef) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>%
+  mutate(PropBleached = NumberBleached/Total,
+         CatBleach = cut(PropBleached, breaks = c(0,0.1,0.3,0.6,0.8,1), 
+                         labels = c("0-10%", "10-30%", "30-60%", "60-80%", "80-100%")))
+
+# Genus Level Proportion Bleaching, group by reef level bleaching category from above
+dat.prop.BleachCat = dat.long %>% left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  group_by(CatBleach, Genus) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>%
+  mutate(PropBleached = NumberBleached/Total)
+
+
+# Select taxa that have greater than 10 colonies in each bleaching category
+dat.taxa = dat.prop.BleachCat %>%  filter(Total >10) %>% select(-Total, -NumberBleached) %>% spread(Genus,PropBleached)
+dat.taxa = as.matrix(dat.taxa[,-1])
+dat.taxa = dat.taxa[,-as.numeric(which(is.na(colSums(dat.taxa))))]
+taxa = colnames(dat.taxa)
+
+# arrange these taxa by overall proportion of bleaching
+dat.arrangetaxa = dat.long %>% left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  group_by(Genus) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>% 
+  filter(Genus %in% taxa) %>%
+  mutate(PropBleached = NumberBleached/Total) %>% arrange(-PropBleached)%>%
+  pull(Genus)
+
+# Create 1:20 Rankings within each bleaching Category
+dat.prop.Rank = dat.long %>% left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  filter(Genus %in% taxa) %>%
+  group_by(Reef,Site, CatBleach, Genus) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>%
+  mutate(PropBleached = NumberBleached/Total) %>%
+  group_by(CatBleach, Genus) %>%
+  summarise(TotalColonies = sum(Total),
+            nSites = n(),
+            MeanBleach = mean(PropBleached),
+            SEBleach = sd(PropBleached)/sqrt(nSites)) %>%
+  arrange(CatBleach, -MeanBleach) %>%
+  mutate(Rank = 1:20)
+
+dat.prop.RankSize = dat.long %>% left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  mutate(Size2 = ifelse(Size %in% c("<20cm","20-40cm"), "5-40cm", 
+                        ifelse(Size %in% c("40-60cm",">60cm"), ">40cm","Juv (<5cm)"))) %>%
+  filter(Genus %in% taxa) %>%
+  group_by(Reef,Site, Size2, Genus) %>%
+  summarise(Total = sum(Number, na.rm = T),
+            NumberBleached = sum(NoBleached, na.rm = T)) %>%
+  mutate(PropBleached = NumberBleached/Total) %>%
+  group_by(Size2, Genus) %>%
+  summarise(TotalColonies = sum(Total),
+            nSites = n(),
+            MeanBleach = mean(PropBleached, na.rm=T),
+            SEBleach = sd(PropBleached,na.rm=T)/sqrt(nSites)) %>%
+  arrange(Size2, -MeanBleach) %>%
+  mutate(Rank = 1:20)
+```
+
+
+
+
+
+
+
+
+## Bleaching Probaility Model
+
+```{r BRMS Bleaching Probability Model}
+# install.packages("splitstackshape")
+# install.packages("emmeans")
+# install.packages("lme4")
+# install.packages("brms")
+library(splitstackshape)
+library(data.table)
+library(lme4)
+library(brms)
+library(emmeans)
+library(performance)
+
+# LOad the brms models so you don't have to run thee model below (it takes forever!)
+load("models.Rdata")
+
+# Create the dataframe to run the model with each colony listed as a row with 0 or 1 for bleaching
+dat.mod = dat.long %>% mutate (Bleached = factor(Bleached)) %>% 
+  left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  group_by(Year,REGION,Region,Reef,Site,Zone, Transect,Genus,Size, CatBleach,Bleached) %>%
+  summarise(Colonies = sum(Number))
+dat.mod = as.data.table(dat.mod)
+dat.mod = expandRows(dat.mod, "Colonies")
+
+dat.mod_beta = dat.prop %>%
+  left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  filter(Genus %in% dat.arrangetaxa) %>%
+  mutate(Size2 = ifelse(Size %in% c("<20cm","20-40cm"), "5-40cm", 
+                        ifelse(Size %in% c("40-60cm",">60cm"), ">40cm","Juv (<5cm)")))
+
+
+# Filter out less abundant taxa
+dat.mod = dat.mod %>% filter(Genus %in% dat.arrangetaxa)%>%
+   select(-c(1,5,7)) %>%
+   mutate(Bleached = as.numeric(as.character(Bleached)), 
+          Reef = factor(Reef), 
+          Genus = factor(Genus)) %>%
+  mutate(Size2 = ifelse(Size %in% c("<20cm","20-40cm"), "5-40cm", 
+                        ifelse(Size %in% c("40-60cm",">60cm"), ">40cm","Juv (<5cm)")))
+dat.mod$Size2 = factor(dat.mod$Size2)
+
+
+#Set Priors
+m1priors = get_prior(formula = Bleached ~ Genus*CatBleach + Size2*Genus +(1|REGION),
+                data = dat.mod,
+                family = "bernoulli")
+
+# Fit Model
+mod.brms1 = brm(formula = Bleached ~ Genus*CatBleach + Size2*Genus +(1|REGION),
+                data = dat.mod,
+                family = bernoulli(),
+                sample_prior = T,
+                prior = m1priors,
+                thin=10,
+                warmup = 200, iter = 600, chains = 3, cores = 3,
+                control = list(
+                  #adapt_delta = 0.99, 
+                  #max_treedepth=13
+                  )
+                )
+
+m1priors_beta = get_prior(formula = PropBleached ~ Genus*CatBleach + Size2*Genus +(1|REGION),
+                data = dat.mod_beta,
+                family = "zero_one_inflated_beta")
+
+# Fit Model
+mod.brms1_beta = brm(formula = PropBleached ~ Genus*CatBleach + Size2*Genus +(1|REGION),
+                data = dat.mod_beta,
+                family = "zero_one_inflated_beta",
+                sample_prior = T,
+                prior = m1priors_beta,
+                thin=10,
+                warmup = 200, iter = 600, chains = 3, cores = 3,
+                control = list(
+                  #adapt_delta = 0.99, 
+                  #max_treedepth=13
+                  )
+                )
+
+summary(mod.brms1)
+check_model(mod.brms1)
+
+# Fit Model
+mod.brms2 = brm(formula = Bleached ~ Genus*CatBleach + Size2*Genus + REGION*Zone + (1|Reef),
+                data = dat.mod,
+                family = bernoulli(),
+                sample_prior = T,
+                # prior = m1priors, 
+                thin=10,
+                warmup = 500, iter = 2000, chains = 3, cores = 3,
+                control = list(
+                  #adapt_delta = 0.99, 
+                  #max_treedepth=13
+                  )
+                )
+
+# save(mod.brms1, mod.glm1, file="models.Rdata")
+```
+
+```{r Summarise and Plot Model}
+library(emmeans)
+library(tidybayes)
+logit2prob <- function(logit){
+  odds <- exp(logit)
+  prob <- odds / (1 + odds)
+  return(prob)
+}
+p1 = mod.brms1 %>%
+  emmeans( ~ Genus | Size2) %>%
+  #contrast(method = "pairwise") %>%
+  gather_emmeans_draws() %>%
+  median_qi() %>%
+  mutate_at(c(".value", ".lower", ".upper"), logit2prob) 
+
+p2 = mod.brms1 %>%
+  emmeans( ~ Genus | CatBleach) %>%
+  #contrast(method = "pairwise") %>%
+  gather_emmeans_draws() %>%
+  median_qi() %>%
+  mutate_at(c(".value", ".lower", ".upper"), logit2prob)
+
+model_em1 <- emmeans(mod.brms1, ~ Size2)
+model_em2 <- emmeans(mod.brms1,  ~ Genus)
+model_em3 <- emmeans(mod.brms1,  ~ CatBleach)
+model_em4 <- emmeans(mod.brms1,  ~ Size2|Genus)
+model_em5 <- emmeans(mod.brms1,  ~ CatBleach|Genus)
+
+completters.Size = multcomp::cld(model_em1,Letters=letters, details=T)
+completters.Genus = multcomp::cld(model_em2, Letters=letters, details=T)
+completters.CatBleach = multcomp::cld(model_em3, Letters=letters, details =T)
+completters.SizeGenus = multcomp::cld(model_em4, Letters=letters, details=T)
+completters.BleachGenus = multcomp::cld(model_em5, Letters=letters, details=T)
+
+modarrange.taxa = as.character(multcomp::cld(model_em2)$Genus) 
+
+
+# Interaction Plot ----
+p1$Genus = factor(p1$Genus, levels = rev(modarrange.taxa))
+p1$Size2 = factor(p1$Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))
+
+
+labelSize <- data.frame(
+  completters.SizeGenus[["emmeans"]][,c(1,2,8)],
+  .value = rep(0.85,nrow(completters.SizeGenus[["emmeans"]])))
+labelSize$.group = str_trim(labelSize$.group)
+p1 = p1 %>% left_join(select(labelSize, -.value))
+
+
+pSize = ggplot(ungroup(p1), aes(x=Size2, y = .value, colour=Genus)) + geom_point() + 
+  geom_errorbar(aes(ymin=.lower, ymax=.upper), width =0.3) + 
+  scale_y_continuous(breaks = c(0,1), labels = scales::percent) + 
+  geom_label(data=labelSize, aes(label=.group), fill="white", 
+             nudge_x = -0.3, colour="black", size=3.5, label.padding = unit(0.15, "lines")) +
+  facet_grid(Genus~.) + theme_bw(base_size = 14) +
+  theme(strip.text.y = element_text(angle=0),
+        legend.position = "none",
+        plot.margin=unit(c(5.5,-3,5.5,5.5), "pt")) +
+  ylab("P(Bleaching) Model Estimate (+/-  95% Quantile Interval)") + xlab("Colony Size") +
+  ggtitle("(a) Taxonomy:Colony Size")
+
+p2$Genus = factor(p2$Genus, levels = rev(modarrange.taxa))
+
+labelBleach <- data.frame(
+  completters.BleachGenus[["emmeans"]][,c(1,2,8)],
+  .value = rep(0.85, nrow(completters.BleachGenus[["emmeans"]])))
+labelBleach$.group = str_trim(labelBleach$.group)
+p2 = p2 %>% left_join(select(labelBleach, -.value))
+
+pBleach = ggplot(ungroup(p2), aes(x=CatBleach, y = .value, colour=Genus)) + geom_point() + 
+  geom_errorbar(aes(ymin=.lower, ymax=.upper), width=0.3) + 
+  scale_y_continuous(breaks = c(0,1), labels = scales::percent) + 
+  geom_label(data=labelBleach, aes(label=.group), fill="white", 
+             nudge_x = -0.3, colour="black", size=3.5, label.padding = unit(0.15, "lines")) +
+  facet_grid(Genus~.) + theme_bw(base_size = 14) +
+  # theme(strip.text.y = element_text(angle=0),
+  #       legend.position = "none") +
+  theme(strip.text.y = element_blank(),
+        legend.position = "none", axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.margin=unit(c(5.5,5.5,5.5,-3), "pt")) +
+  # scale_color_brewer(palette = "Dark2") +
+  ylab("P(Bleaching) Model Estimate (+/-  95% Quantile Interval)") + xlab("Bleaching Category") +
+  ggtitle("(b) Taxonomy:Bleaching Category")
+
+
+lay = rbind(c(1,1,1,2,2),
+             c(1,1,1,2,2),
+             c(1,1,1,2,2),
+            c(1,1,1,2,2))
+
+gridExtra::grid.arrange(pSize,pBleach, ncol=2)
+g=gridExtra::arrangeGrob(pSize,pBleach, ncol=2, layout_matrix = lay)
+ggsave(file="Figures/FigureInt.tiff",g, dpi =300, width=9, height=12)
+ggsave(file="Figures/FigureInt.svg",g, dpi=300, width=9, height=12)
+ggsave(file="Figures/FigureInt.png",g, dpi=300, width=9, height=12)
+
+
+# Model Plot ----
+label <- data.frame(
+  completters.Genus[["emmeans"]][,c(1,7)],
+  .value = rep(1, nrow(completters.Genus[["emmeans"]])))
+label$.group = str_trim(label$.group)
+
+GenusPlot = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(Genus = factor(Genus, levels = modarrange.taxa)) %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  # filter(grepl("Dips",contrast)) %>%
+  ggplot(aes(x = .value, y = Genus, fill = stat(x >0.17 & x< .47))) +
+  stat_halfeye() +
+  # coord_cartesian(xlim =c(-5,5)) +
+  geom_label(data=label, aes(label=.group), fill="white", hjust=1) +
+  geom_vline(xintercept = c(0.17, 0.47), linetype = "dashed") +
+  scale_fill_manual(values = c("gray80", "skyblue")) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none") +
+  ylab("Taxonomy") + xlab("P(Bleaching)")
+
+
+label <- data.frame(
+  completters.Size[["emmeans"]][,c(1,7)],
+  .value = c(1,1,1))
+label$.group = str_trim(label$.group)
+
+SizePlot = 
+  mod.brms1 %>% 
+  emmeans( ~ Size2) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  mutate(Size2= factor(Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))) %>%
+  # left_join(select(completters.Size, Size2, .group)) #%>%
+  ggplot(aes(x = .value, y = Size2, fill = stat(abs(x) < .8)), alpha=0.7) +
+  stat_eye() + coord_cartesian(xlim =c(-5,5)) +
+  geom_label(data=label, aes(label=.group), fill="white") +
+  # geom_vline(xintercept = c(-.8, 0.8), linetype = "dashed") +
+  scale_fill_manual(values = c("gray80", "coral")) +
+  scale_alpha_manual(values = 0.3) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none") +
+  ylab("Colony Size") + xlab("P(Bleaching)") +coord_flip() 
+
+label <- data.frame(
+  completters.CatBleach[["emmeans"]][,c(1,7)],
+  .value = rep(1, nrow(completters.CatBleach[["emmeans"]])))
+label$.group = str_trim(label$.group)
+colours = c("#3BAEE5", "#06A53F", "#FAEA01", "#FCC200", "#E40D14")
+
+BleachPlot = 
+  mod.brms1 %>% 
+  emmeans( ~ CatBleach) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  # mutate(Size2= factor(Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))) %>%
+  # left_join(select(completters.Size, Size2, .group)) #%>%
+  ggplot(aes(x = .value, y = CatBleach, fill=CatBleach)) +
+  stat_eye(alpha=0.8) + 
+  # coord_cartesian(xlim =c(-5,5)) +
+  geom_label(data=label, aes(label=.group), fill="white") +
+  # geom_vline(xintercept = c(-.8, 0.8), linetype = "dashed") +
+  scale_fill_manual(values = colours) +
+  # scale_alpha_manual(values = 0.3) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none") +
+  ylab("Bleaching Category") + xlab("P(Bleaching)") +coord_flip() 
+
+
+lay = rbind(c(1,1,1,2,2),
+             c(1,1,1,2,2),
+             c(1,1,1,3,3),
+            c(1,1,1,3,3))
+
+gridExtra::grid.arrange(GenusPlot,SizePlot,BleachPlot, layout_matrix = lay)
+g=gridExtra::arrangeGrob(GenusPlot,SizePlot,BleachPlot, layout_matrix = lay)
+ggsave(file="Figures/FigureMod.tiff",g, dpi =300, width=10, height=8)
+ggsave(file="Figures/FigureMod.svg",g, dpi=300, width=10, height=8)
+ggsave(file="Figures/FigureMod.png",g, dpi=300, width=10, height=8)
+
+GenusSizePlot = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus|Size2) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(Genus = factor(Genus, levels = modarrange.taxa)) %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  # filter(grepl("Dips",contrast)) %>%
+  ggplot(aes(x = .value, y = Genus, fill = Size2)) +
+  stat_halfeye(alpha=0.7, size =0.5) +
+  # coord_cartesian(xlim =c(-5,5)) +
+  # geom_label(data=label, aes(label=.group), fill="white", hjust=1) +
+  # geom_vline(xintercept = c(0.17, 0.47), linetype = "dashed") +
+  # scale_fill_manual(values = c("gray80", "skyblue")) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "bottom") +
+  ylab("Taxonomy") + xlab("P(Bleaching)")
+
+
+GenusBleachPlot = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus|CatBleach) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(Genus = factor(Genus, levels = modarrange.taxa)) %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  # filter(grepl("Dips",contrast)) %>%
+  ggplot(aes(x = .value, y = Genus, fill = CatBleach)) +
+  stat_halfeye(alpha=0.7, size =0.5) +
+  # coord_cartesian(xlim =c(-5,5)) +
+  # geom_label(data=label, aes(label=.group), fill="white", hjust=1) +
+  # geom_vline(xintercept = c(0.17, 0.47), linetype = "dashed") +
+  # scale_fill_manual(values = c("gray80", "skyblue")) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "bottom") +
+  ylab("Taxonomy") + xlab("P(Bleaching)")
+
+ggsave(file="Figures/GenusSizeMod.tiff",GenusSizePlot, dpi =300, width=7, height=7)
+ggsave(file="Figures/GenusSizeMod.svg",GenusSizePlot, dpi=300, width=7, height=7)
+ggsave(file="Figures/GenusSizeMod.png",GenusSizePlot, dpi=300, width=7, height=7)
+```
+
+```{r Heat Map Rank Order Change}
+arrange60_80 = filter(dat.prop.Rank, CatBleach %in% "60-80%") %>% pull(Genus) %>% rev()
+
+dat.prop.Rank$Genus = factor(dat.prop.Rank$Genus,levels = arrange60_80)
+pRank60_80 = ggplot(dat.prop.Rank, aes(CatBleach, Genus, fill = rev(Rank), label=Rank)) +
+  geom_tile() +  scale_fill_distiller(palette = "Spectral") +
+  geom_label(fill="white", size =3) +
+  theme_light(base_size = 14) + ylab("Taxonomy")+ labs(x = "Bleaching Category", fill="Rank Order") +
+  theme(
+    # axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), 
+    # legend.title = element_blank(),
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+dat.prop.Rank$Genus = factor(dat.prop.Rank$Genus,levels = modarrange.taxa)
+pRankMod = ggplot(dat.prop.Rank, aes(CatBleach, Genus, fill = rev(Rank), label=Rank)) +
+  geom_tile() +  scale_fill_distiller(palette = "Spectral") +
+  geom_label(fill="white", size =3) +
+  theme_light(base_size = 14) + ylab("Taxonomy")+ labs(x = "Bleaching Category", fill="Rank Order") +
+  theme(
+     # axis.text.x = element_text(angle = 45, hjust = 1, vjust=1),
+    # axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), 
+    # legend.title = element_blank(),
+    axis.text.y = element_blank(),
+    axis.title.y = element_blank(),
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+# ggsave(file="Figures/FigureRank1.tiff",pRank60_80,dpi =300, width=7, height=8)
+# ggsave(file="Figures/FigureRank1.svg",pRank60_80, dpi=300, width=7, height=8)
+# ggsave(file="Figures/FigureRank1.png",pRank60_80, dpi=300, width=7, height=8)
+# 
+# ggsave(file="Figures/FigureRank2.tiff",pRankMod,dpi =300, width=7, height=8)
+# ggsave(file="Figures/FigureRank2.svg",pRankMod, dpi=300, width=7, height=8)
+# ggsave(file="Figures/FigureRank2.png",pRankMod, dpi=300, width=7, height=8)
+
+
+dat.prop.RankSize$Genus = factor(dat.prop.RankSize$Genus,levels = modarrange.taxa)
+dat.prop.RankSize$Size2 = factor(dat.prop.RankSize$Size2,levels = c("Juv (<5cm)", "5-40cm", ">40cm"))
+dat.prop.RankSize$Rank[which(is.na(dat.prop.RankSize$SEBleach))] = NA
+pRankModSize = ggplot(dat.prop.RankSize, aes(Size2, Genus, fill = Rank, label=Rank)) +
+  geom_tile() +  scale_fill_distiller(palette = "Spectral", trans = "reverse") +
+  geom_label(fill="white", size =3) +
+  theme_light(base_size = 14) + ylab("Taxonomy") + labs(x = "Colony Size", fill="Rank Order") +
+  theme(
+    # axis.text.x = element_text(angle = 45, hjust = 1, vjust=1),
+    legend.key.width = unit(2,"cm"), 
+    # legend.title = element_blank(),
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+# pRankModSize
+
+lay = rbind(c(1,1,1,1,2,2,2),
+             c(1,1,1,1,2,2,2),
+             c(1,1,1,1,2,2,2),
+            c(1,1,1,1,2,2,2))
+gridExtra::grid.arrange(pRankModSize,pRankMod, ncol=2)
+g=gridExtra::arrangeGrob(pRankModSize,pRankMod, ncol=2
+                         # , layout_matrix = lay
+                         )
+ggsave(file="Figures/FigureRank.tiff",g,dpi =300, width=8, height=8)
+ggsave(file="Figures/FigureRank.svg",g, dpi=300, width=8, height=8)
+ggsave(file="Figures/FigureRank.png",g, dpi=300, width=8, height=8)
+```
+
+
+## EVERYTHING PAST HERE CAN BE IGNORED 
+
+THis was all exploratory code and graphs that may be broken and was not used in the manuscript
+
+```{r Helper Functions}
+
+# Creates Effects Plot of BRMS Model 
+ploteffects.brms = function(model, title=NULL, plotlabels=NULL, exp=FALSE) {
+  summy = as.data.frame(summary(model)$fixed)
+  summy = summy %>% 
+    mutate(Variable = factor(rownames(summy))) %>%
+    filter(!Variable %in% "Intercept") %>%
+    mutate(Sig = factor(ifelse(sign(`l-95% CI`)==sign(`u-95% CI`), "Y", "N"), levels = c("Y", "N")))
+  if(exp==TRUE){
+    summy[1:4] = exp(summy[1:4])
+  }
+  ggplot(summy,aes(x=Variable,y=Estimate))  + 
+    geom_hline(yintercept = 0) +
+    geom_linerange(aes(ymin=`l-95% CI`,ymax=`u-95% CI`)) +
+    geom_point(size=3, aes(colour=Sig)) + 
+    scale_color_manual(breaks = c("Y", "N"), values = c("black", "grey")) +
+    guides(colour=FALSE) +
+    ggtitle(title) +
+    labs(x=plotlabels[2], y=plotlabels[1]) +
+    coord_flip() 
+}
+
+# Saves all marginal effects plots of BRMS model
+marginaleffects.brms = function(model, Effects) {
+  plots = list()
+  for (i in 1: length(Effects)){
+    plots[i] = plot(marginal_effects(model, effects=Effects[i]))
+  }
+  return(plots)
+}
+
+# Generates pvalue from BRMS model
+mcmcpvalue <- function(samp) {
+  ## elementary version that creates an empirical p-value for the
+  ## hypothesis that the columns of samp have mean zero versus a general
+  ## multivariate distribution with elliptical contours.
+  
+  ## differences from the mean standardized by the observed
+  ## variance-covariance factor
+  
+  ## Note, I put in the bit for single terms
+  if (length(dim(samp)) == 0) {
+    std <- backsolve(chol(var(samp)), cbind(0, t(samp)) - mean(samp),
+                     transpose = TRUE)
+    sqdist <- colSums(std * std)
+    sum(sqdist[-1] > sqdist[1])/length(samp)
+  } else {
+    std <- backsolve(chol(var(samp)), cbind(0, t(samp)) - colMeans(samp),
+                     transpose = TRUE)
+    sqdist <- colSums(std * std)
+    sum(sqdist[-1] > sqdist[1])/nrow(samp)
+  }
+  
+}
+
+```
+
+
+```{r Lollipop - Don't think I need this}
+library(viridis)
+
+dat.prop2 = dat.long %>%
+  group_by(REGION, Region, Reef, Site, Zone, Transect, Genus, Size) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>%
+  mutate(PropBleached = NumberBleached/Total)
+
+dat.prop.arrange = dat.prop2 %>%
+  group_by(Genus) %>%
+  summarise(TotalColonies = sum(Total),
+            MeanBleach = mean(PropBleached, na.rm = T),
+            SEBleach = sd(PropBleached, na.rm = T)/sqrt(sum(!is.nan(PropBleached)))) %>%
+  filter(TotalColonies >80) %>% arrange(MeanBleach) %>% pull(Genus)
+
+dat.Colonies.arrange = dat.prop2 %>%
+  group_by(Genus) %>%
+  summarise(TotalColonies = sum(Total),
+            MeanBleach = mean(PropBleached, na.rm = T),
+            SEBleach = sd(PropBleached, na.rm = T)/sqrt(sum(!is.nan(PropBleached)))) %>%
+  filter(TotalColonies >80) %>% arrange(-TotalColonies) #%>% pull(Genus)
+
+dat.prop.sum2 = dat.prop2 %>%
+  group_by(Genus, Size) %>%
+  summarise(TotalColonies = sum(Total, na.rm=T),
+            MeanBleach = mean(PropBleached, na.rm = T),
+            SEBleach = sd(PropBleached, na.rm = T)/sqrt(sum(!is.nan(PropBleached)))) %>%
+  filter(Genus %in% dat.prop.arrange) %>% ungroup() %>%
+  mutate(Genus = factor(Genus, levels = dat.prop.arrange))
+
+hlines = dat.prop.rank %>%
+  group_by(CatBleach) %>% summarise(Med = median(MeanBleach,na.rm = T))
+
+dat.prop.rank$Genus = factor(dat.prop.rank$Genus,levels = rev(dat.arrangetaxa))
+ggplot(dat.prop.rank, aes(x=Genus, y=MeanBleach)) +
+  geom_hline(data=hlines, aes(yintercept = c(0.059, 0.14, 0.34, 0.58, 0.71)), linetype = "dashed")+
+  # geom_segment( aes(x=Genus, xend=Genus, y=0, yend=MeanBleach), color="grey") +
+  geom_linerange(data = dat.prop.rank,aes(ymin = MeanBleach-SEBleach, ymax = MeanBleach+SEBleach)) +
+  geom_point(data = dat.prop.rank,aes(color=MeanBleach), size=3, alpha=1) +
+  scale_colour_distiller(palette = "Spectral",labels=scales::percent) +
+  # scale_color_gradient2(midpoint =0.5, low = "blue", mid = "yellow",
+  #                           high = "red",labels=scales::percent) +
+  # scale_color_gradientn(colours = rev(heat.colors(5)), labels=scales::percent) +
+  # scale_colour_viridis(labels=scales::percent) +
+  theme_light(base_size = 14) + xlab("Taxonomy")+ labs(y = "Mean Percent Bleached") +
+  coord_flip() +
+  facet_grid(~CatBleach) + 
+  scale_y_continuous(labels = scales::percent, breaks = c(0,0.5,1)) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), legend.title = element_blank(),
+    legend.position = "bottom",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+ggsave(filename = "Figures/BleachingPropGenusBleach.png", device = "png", width = 8, height = 8, dpi = 300) 
+
+
+dat.prop.SizeCat2$Genus = factor(dat.prop.SizeCat2$Genus,levels = rev(dat.arrangetaxa))
+dat.prop.SizeCat2$Size2 = factor(dat.prop.SizeCat2$Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))
+hlines = dat.prop.SizeCat2 %>%
+  group_by(Size2) %>% summarise(Med = median(MeanBleach,na.rm = T))
+ggplot(dat.prop.SizeCat2, aes(x=Genus, y=MeanBleach)) +
+  geom_hline(data=hlines, aes(yintercept = c(0.36,0.43,0.48)), linetype = "dashed")+
+  # geom_segment( aes(x=Genus, xend=Genus, y=0, yend=MeanBleach), color="grey") +
+  geom_linerange(data = dat.prop.SizeCat2,aes(ymin = MeanBleach-SEBleach, ymax = MeanBleach+SEBleach)) +
+  geom_point(data = dat.prop.SizeCat2,aes(color=MeanBleach), size=3, alpha=1) +
+  scale_colour_distiller(palette = "Spectral",labels=scales::percent) +
+  # scale_color_gradient2(midpoint =0.5, low = "blue", mid = "yellow",
+  #                           high = "red",labels=scales::percent) +
+  # scale_color_gradientn(colours = rev(heat.colors(5)), labels=scales::percent) +
+  # scale_colour_viridis(labels=scales::percent) +
+  theme_light(base_size = 14) + xlab("Taxonomy")+ labs(y = "Mean Percent Bleached") +
+  coord_flip() +
+  facet_grid(~Size2) + 
+  scale_y_continuous(limits = c(0,1),labels = scales::percent, breaks = c(0,0.5,1)) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), legend.title = element_blank(),
+    legend.position = "bottom",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+ggsave(filename = "Figures/BleachingPropGenusSize.png", device = "png", width = 8, height = 8, dpi = 300) 
+write.csv(dat.prop.RankSize, "Data/BleachingPropGenusSize.csv", row.names = F)
+write.csv(dat.prop.rank, "Data/BleachingPropGenusBleach.csv", row.names = F)
+```
+
+
+
+
+```{r Summarise Model - Old}
+library(emmeans)
+library(tidybayes)
+logit2prob <- function(logit){
+  odds <- exp(logit)
+  prob <- odds / (1 + odds)
+  return(prob)
+}
+p1 = mod.brms1 %>%
+  emmeans( ~ Genus | Size2) %>%
+  #contrast(method = "pairwise") %>%
+  gather_emmeans_draws() %>%
+  median_qi() %>%
+  mutate_at(c(".value", ".lower", ".upper"), logit2prob) 
+
+p2 = mod.brms1 %>%
+  emmeans( ~ Genus | CatBleach) %>%
+  #contrast(method = "pairwise") %>%
+  gather_emmeans_draws() %>%
+  median_qi() %>%
+  mutate_at(c(".value", ".lower", ".upper"), logit2prob)
+
+p3 = mod.brms1 %>%
+  emmeans( ~ Size2 | Genus) %>%
+  #contrast(method = "pairwise") %>%
+  gather_emmeans_draws() %>%
+  median_qi() %>%
+  mutate_at(c(".value", ".lower", ".upper"), logit2prob) 
+
+p4 = mod.brms1 %>%
+  emmeans( ~  CatBleach | Genus) %>%
+  #contrast(method = "pairwise") %>%
+  gather_emmeans_draws() %>%
+  median_qi() %>%
+  mutate_at(c(".value", ".lower", ".upper"), logit2prob)
+
+# model_em <- emmeans(mod.brms1,  ~ Size2|Genus|CatBleach, type="response")
+model_em2 <- emmeans(mod.brms1,  ~  Genus|Size2)
+model_em3 <- emmeans(mod.brms1,  ~ Genus|CatBleach)
+model_em4 <- emmeans(mod.brms1,  ~ CatBleach|Genus)
+model_em5 <- emmeans(mod.brms1,  ~ Genus)
+model_em6 <- emmeans(mod.brms1,  ~ CatBleach)
+model_em7 <- emmeans(mod.brms1,  ~ Size2|Genus)
+model_em8 <- emmeans(mod.brms1, ~ Size2)
+model_em7$contrasts
+
+#get all possible contrasts
+# cont <- contrast(model_em, "tukey")
+cont2 <- contrast(model_em2, "tukey")
+cont3 <- contrast(model_em3, "tukey")
+cont4 <- contrast(model_em4, "tukey")
+cont5 <- contrast(model_em5, "tukey")
+cont6 <- contrast(model_em6, "tukey")
+cont7 <- contrast(model_em7, "tukey")
+cont8 <- contrast(model_em8, "pairwise")
+
+pairs(model_em8)
+cont4
+cont5
+cont6
+cont7
+cont8
+summary(model_em7)
+
+completters.Size = multcomp::cld(model_em8,Letters=letters, details=T)
+completters.Genus = multcomp::cld(model_em5, Letters=letters, details=T)
+completters.CatBleach = multcomp::cld(model_em6, Letters=letters, details =T)
+completters.SizeGenus = multcomp::cld(model_em7, Letters=letters, details=T)
+completters.BleachGenus = multcomp::cld(model_em4, Letters=letters, details=T)
+
+
+modarrange.taxa = as.character(multcomp::cld(model_em5)$Genus) 
+# multcomp::cld(cont4)
+# multcomp::cld(model_em2)
+# multcomp::cld(model_em3)
+# multcomp::cld(model_em4)
+# completters = multcomp::cld(model_em5,Letters=letters)
+# complettersSize = multcomp::cld(model_em5, Letters=letters)
+
+# completters.BleachGenus = multcomp::cld(model_em4,Letters=letters)
+# completters.SizeGenus = multcomp::cld(model_em8, Letters=letters)
+
+p1$Genus = factor(p1$Genus, levels = rev(modarrange.taxa))
+p1$Size2 = factor(p1$Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))
+p2$Genus = factor(p2$Genus, levels = rev(modarrange.taxa))
+
+p1 = p1 %>% left_join(select(labelSize, -.value))
+
+labelSize <- data.frame(
+  completters.SizeGenus[["emmeans"]][,c(1,2,8)],
+  .value = rep(0.85,nrow(completters.SizeGenus)))
+labelSize$.group = str_trim(labelSize$.group)
+
+pSize = ggplot(ungroup(p1), aes(x=Size2, y = .value, colour=Genus)) + geom_point() + 
+  geom_errorbar(aes(ymin=.lower, ymax=.upper), width =0.3) + 
+  scale_y_continuous(breaks = c(0,1), labels = scales::percent) + 
+  geom_label(data=labelSize, aes(label=.group), fill="white", 
+             nudge_x = -0.3, colour="black", size=3.5, label.padding = unit(0.15, "lines")) +
+  facet_grid(Genus~.) + theme_bw(base_size = 14) +
+  theme(strip.text.y = element_text(angle=0),
+        legend.position = "none",
+        plot.margin=unit(c(5.5,-3,5.5,5.5), "pt")) +
+  ylab("P(Bleaching) Model Estimate (+/-  95% Quantile Interval)") + xlab("Colony Size") +
+  ggtitle("(a) Taxonomy:Colony Size")
+
+p2 = p2 %>% left_join(select(labelBleach, -.value))
+
+labelBleach <- data.frame(
+  completters.BleachGenus[["emmeans"]][,c(1,2,8)],
+  .value = rep(0.85, nrow(completters.BleachGenus)))
+labelBleach$.group = str_trim(labelBleach$.group)
+
+pBleach = ggplot(ungroup(p2), aes(x=CatBleach, y = .value, colour=Genus)) + geom_point() + 
+  geom_errorbar(aes(ymin=.lower, ymax=.upper), width=0.3) + 
+  scale_y_continuous(breaks = c(0,1), labels = scales::percent) + 
+  geom_label(data=labelBleach, aes(label=.group), fill="white", 
+             nudge_x = -0.3, colour="black", size=3.5, label.padding = unit(0.15, "lines")) +
+  facet_grid(Genus~.) + theme_bw(base_size = 14) +
+  # theme(strip.text.y = element_text(angle=0),
+  #       legend.position = "none") +
+  theme(strip.text.y = element_blank(),
+        legend.position = "none", axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.margin=unit(c(5.5,5.5,5.5,-3), "pt")) +
+  # scale_color_brewer(palette = "Dark2") +
+  ylab("P(Bleaching) Model Estimate (+/-  95% Quantile Interval)") + xlab("Bleaching Category") +
+  ggtitle("(b) Taxonomy:Bleaching Category")
+
+
+lay = rbind(c(1,1,1,2,2),
+             c(1,1,1,2,2),
+             c(1,1,1,2,2),
+            c(1,1,1,2,2))
+
+gridExtra::grid.arrange(pSize,pBleach, ncol=2)
+g=gridExtra::arrangeGrob(pSize,pBleach, ncol=2, layout_matrix = lay)
+ggsave(file="Figures/FigureInt.tiff",g, dpi =300, width=9, height=12)
+ggsave(file="Figures/FigureInt.svg",g, dpi=300, width=9, height=12)
+ggsave(file="Figures/FigureInt.png",g, dpi=300, width=9, height=12)
+
+# conditions = data.frame(CatBleach = c("0-10%", "10-30%","30-60%", "60-80%", "80-100%"))
+# plotdata = conditional_effects(mod.brms1, "Size2:Genus", conditions = conditions)[[1]]
+# plotdata$Genus = factor(plotdata$Genus, levels = dat.arrangetaxa)
+# plotdata$Size2 = factor(plotdata$Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))
+# pSize = ggplot(plotdata, aes(x=Size2, y=estimate__, colour=Genus)) + 
+#   geom_point(position = position_dodge(width=0.8), size =2) + 
+#   geom_errorbar(aes(ymin=lower__, ymax=upper__), width = 1, position = position_dodge(width=0.8)) +
+#   theme_light(base_size = 14)  + 
+#   ylab("P(Bleaching) Model Estimate (+/-  95% Quantile Interval)") + xlab("Colony Size") + 
+#   facet_wrap(~CatBleach, ncol = 1 )
+# 
+# pAll = ggplot(plotdata, aes(x=Size2, y=estimate__, colour=Genus)) + 
+#   geom_point(position = position_dodge(width=0.8), size =2) + 
+#   geom_errorbar(aes(ymin=lower__, ymax=upper__), width = 1, position = position_dodge(width=0.8)) +
+#   theme_light(base_size = 14)  + 
+#   ylab("P(Bleaching) Model Estimate (+/-  95% Quantile Interval)") + xlab("Colony Size") + 
+#   facet_grid(Genus~.)
+# 
+# pd = plot(marginal_effects(mod.brms1, "CatBleach:Genus"), points=F)[[1]] 
+# pd = pd + theme_light(base_size = 14) + xlab("Zone") + 
+#   ylab("P(Bleaching)") + scale_color_brewer(palette = "Dark2") +
+#   theme(legend.position = "left") + ggtitle("(d)")
+# # Arrange PLots
+# gridExtra::grid.arrange(pa + theme(plot.background = element_rect(size=0.5,linetype="solid",color="grey")),
+#                         pb + theme(plot.background = element_rect(size=0.5,linetype="solid",color="grey")),
+#                         pc + theme(plot.background = element_rect(size=0.5,linetype="solid",color="grey")),
+#                         pd + theme(plot.background = element_rect(size=0.5,linetype="solid",color="grey")),
+#                         ncol=2, widths = c(3,2))
+# 
+# # Save plots
+# graph2eps(file="Figures/Figure3.eps", aspectr=3, font = "Arial", height = 8, width=10, bg = "transparent")
+# graph2tif(file="Figures/Figure3.tiff",dpi=300, font = "Arial", height=8, width=10)
+#  ggsave(file="Figures/Figure3.tiff", width=10, height=8)
+
+
+modarrange.taxa = as.character(multcomp::cld(model_em5)$Genus) 
+GenusPlot = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus) %>%
+  contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws()
+
+label <- data.frame(
+  completters.Size[["emmeans"]][,c(1,7)],
+  .value = c(1,1,1))
+label$.group = str_trim(label$.group)
+
+SizeFit = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus|Size2) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  mutate(Size2= factor(Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))) %>% 
+  group_by(Genus, Size2) %>%
+  summarise(Mean = mean(.value), SE = sd(.value)/sqrt(n()))
+
+SizePlot = 
+  mod.brms1 %>% 
+  emmeans( ~ Size2) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  mutate(Size2= factor(Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))) %>%
+  # left_join(select(completters.Size, Size2, .group)) #%>%
+  ggplot(aes(x = .value, y = Size2, fill = stat(abs(x) < .8)), alpha=0.7) +
+  stat_eye() + coord_cartesian(xlim =c(-5,5)) +
+  geom_label(data=label, aes(label=.group), fill="white") +
+  # geom_vline(xintercept = c(-.8, 0.8), linetype = "dashed") +
+  scale_fill_manual(values = c("gray80", "coral")) +
+  scale_alpha_manual(values = 0.3) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none") +
+  ylab("Colony Size") + xlab("P(Bleaching)") +coord_flip() 
+
+label <- data.frame(
+  completters.CatBleach[["emmeans"]][,c(1,7)],
+  .value = rep(1, nrow(completters.CatBleach)))
+label$.group = str_trim(label$.group)
+colours = c("#3BAEE5", "#06A53F", "#FAEA01", "#FCC200", "#E40D14")
+BleachPlot = 
+  mod.brms1 %>% 
+  emmeans( ~ CatBleach) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  # mutate(Size2= factor(Size2, levels = c("Juv (<5cm)", "5-40cm", ">40cm"))) %>%
+  # left_join(select(completters.Size, Size2, .group)) #%>%
+  ggplot(aes(x = .value, y = CatBleach, fill=CatBleach)) +
+  stat_eye(alpha=0.8) + 
+  # coord_cartesian(xlim =c(-5,5)) +
+  geom_label(data=label, aes(label=.group), fill="white") +
+  # geom_vline(xintercept = c(-.8, 0.8), linetype = "dashed") +
+  scale_fill_manual(values = colours) +
+  # scale_alpha_manual(values = 0.3) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none") +
+  ylab("Bleaching Category") + xlab("P(Bleaching)") +coord_flip() 
+
+
+lev = levels(GenusPlot$contrast)
+lev = na.omit(lev[match(rev(modarrange.taxa), substr(lev,1,nchar(lev)-13))])
+
+GenusPlot = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus) %>%
+  contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(contrast = factor(contrast, levels = lev)) %>%
+  #mutate_at(c(".value"), logit2prob) %>%
+  # filter(grepl("Dips",contrast)) %>%
+  ggplot(aes(x = .value, y = contrast, fill = stat(abs(x) < .8))) +
+  stat_halfeye() + coord_cartesian(xlim =c(-5,5)) +
+  geom_vline(xintercept = c(-.8, 0.8), linetype = "dashed") +
+  scale_fill_manual(values = c("gray80", "skyblue")) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none") +
+  ylab("Contrast") + xlab("Effect Size (Log Odds-Ratio)")
+
+GenusPlot2 = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws()
+
+logit2prob(quantile(GenusPlot2$.value))
+label <- data.frame(
+  completters.Genus[["emmeans"]][,c(1,7)],
+  .value = rep(1, nrow(completters.CatBleach)))
+label$.group = str_trim(label$.group)
+GenusPlot2 = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(Genus = factor(Genus, levels = modarrange.taxa)) %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  # filter(grepl("Dips",contrast)) %>%
+  ggplot(aes(x = .value, y = Genus, fill = stat(x >0.17 & x< .47))) +
+  stat_halfeye() +
+  # coord_cartesian(xlim =c(-5,5)) +
+  geom_label(data=label, aes(label=.group), fill="white", hjust=1) +
+  geom_vline(xintercept = c(0.17, 0.47), linetype = "dashed") +
+  scale_fill_manual(values = c("gray80", "skyblue")) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none") +
+  ylab("Taxonomy") + xlab("P(Bleaching)")
+
+GenusSizePlot = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus|Size2) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(Genus = factor(Genus, levels = modarrange.taxa)) %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  # filter(grepl("Dips",contrast)) %>%
+  ggplot(aes(x = .value, y = Genus, fill = Size2)) +
+  stat_halfeye(alpha=0.7, size =0.5) +
+  # coord_cartesian(xlim =c(-5,5)) +
+  # geom_label(data=label, aes(label=.group), fill="white", hjust=1) +
+  # geom_vline(xintercept = c(0.17, 0.47), linetype = "dashed") +
+  # scale_fill_manual(values = c("gray80", "skyblue")) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "bottom") +
+  ylab("Taxonomy") + xlab("P(Bleaching)")
+
+
+GenusBleachPlot = 
+  mod.brms1 %>% 
+  emmeans( ~ Genus|CatBleach) %>%
+  # contrast(method = "trt.vs.ctrl", ref=6) %>%
+  gather_emmeans_draws() %>%
+  mutate(Genus = factor(Genus, levels = modarrange.taxa)) %>%
+  mutate_at(c(".value"), logit2prob) %>%
+  # filter(grepl("Dips",contrast)) %>%
+  ggplot(aes(x = .value, y = Genus, fill = CatBleach)) +
+  stat_halfeye(alpha=0.7, size =0.5) +
+  # coord_cartesian(xlim =c(-5,5)) +
+  # geom_label(data=label, aes(label=.group), fill="white", hjust=1) +
+  # geom_vline(xintercept = c(0.17, 0.47), linetype = "dashed") +
+  # scale_fill_manual(values = c("gray80", "skyblue")) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "bottom") +
+  ylab("Taxonomy") + xlab("P(Bleaching)")
+
+ggsave(file="Figures/GenusSizeMod.tiff",GenusSizePlot, dpi =300, width=7, height=7)
+ggsave(file="Figures/GenusSizeMod.svg",GenusSizePlot, dpi=300, width=7, height=7)
+ggsave(file="Figures/GenusSizeMod.png",GenusSizePlot, dpi=300, width=7, height=7)
+
+lay = rbind(c(1,1,1,2,2),
+             c(1,1,1,2,2),
+             c(1,1,1,3,3),
+            c(1,1,1,3,3))
+
+gridExtra::grid.arrange(GenusPlot2,SizePlot,BleachPlot, layout_matrix = lay)
+g=gridExtra::arrangeGrob(GenusPlot2,SizePlot,BleachPlot, layout_matrix = lay)
+ggsave(file="Figures/FigureMod.tiff",g, dpi =300, width=10, height=8)
+ggsave(file="Figures/FigureMod.svg",g, dpi=300, width=10, height=8)
+ggsave(file="Figures/FigureMod.png",g, dpi=300, width=10, height=8)
+# graph2eps(file="Figures/GenusMod.eps", aspectr=3, font = "Arial", height = 8, width=10, bg = "transparent")
+# graph2tif(file="Figures/GenusMod.tiff",dpi=300, font = "Arial", height=8, width=10)
+
+
+
+
+plot(marginal_effects(mod.brms1, "REGION"), points=F)[[1]] 
+
+plot(marginal_effects(mod.brms1, "Zone"), points=F)[[1]] 
+pc = plot(marginal_effects(mod.brms1, "Genus:Size"), points=F)[[1]] 
+pc = pc + theme_light(base_size = 14) + xlab("Colony Size") + 
+  ylab("P(Bleaching)") + scale_color_brewer(palette = "Dark2") +
+  theme(legend.position = "left") + ggtitle("(c)")
+# Pvalues
+
+```
+
+```{r Not Sure which of these get used}
+# Select taxa 
+dat.3D = dat.prop.BleachCat %>%  filter(Total >10) %>% select(-Total, -NumberBleached) %>% spread(Genus,PropBleached)
+
+
+dat.3D = as.matrix(dat.3D[,-1])
+# row.names(dat.3D) = rowname3d
+dat.3D = dat.3D[,-as.numeric(which(is.na(colSums(dat.3D))))]
+taxa = colnames(dat.3D)
+
+dat.arrangetaxa = dat.long %>% left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  group_by(Genus) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>% 
+  filter(Genus %in% taxa) %>%
+  mutate(PropBleached = NumberBleached/Total) %>% arrange(-PropBleached)%>%
+  pull(Genus)
+
+
+dat.prop.BleachCat2 = dat.long %>% left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  filter(Genus %in% taxa) %>%
+  group_by(Reef,Site, CatBleach, Genus) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>%
+  mutate(PropBleached = NumberBleached/Total) %>%
+  group_by(CatBleach, Genus) %>%
+  summarise(TotalColonies = sum(Total),
+            nSites = n(),
+            MeanBleach = mean(PropBleached),
+            SEBleach = sd(PropBleached)/sqrt(nSites)) %>%
+  arrange(CatBleach, -MeanBleach) %>%
+  mutate(Rank = 1:20)
+
+
+  
+dat.prop.SizeCat2 = dat.long %>% left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  mutate(Size2 = ifelse(Size %in% c("<20cm","20-40cm"), "5-40cm", 
+                        ifelse(Size %in% c("40-60cm",">60cm"), ">40cm","Juv (<5cm)"))) %>%
+  filter(Genus %in% taxa) %>%
+  group_by(Reef,Site, Size2, Genus) %>%
+  summarise(Total = sum(Number, na.rm = T),
+            NumberBleached = sum(NoBleached, na.rm = T)) %>%
+  mutate(PropBleached = NumberBleached/Total) %>%
+  group_by(Size2, Genus) %>%
+  summarise(TotalColonies = sum(Total),
+            nSites = n(),
+            MeanBleach = mean(PropBleached, na.rm=T),
+            SEBleach = sd(PropBleached,na.rm=T)/sqrt(nSites)) %>%
+  arrange(Size2, -MeanBleach) %>%
+  mutate(Rank = 1:20)
+
+dat.prop.Size = dat.long %>% left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  mutate(Size2 = ifelse(Size %in% c("<20cm","20-40cm"), "5-40cm", 
+                        ifelse(Size %in% c("40-60cm",">60cm"), ">40cm","Juv (<5cm)"))) %>%
+  filter(Genus %in% taxa) %>%
+  group_by(REGION, Size2, Genus) %>%
+  summarise(Total = sum(Number, na.rm = T),
+            NumberBleached = sum(NoBleached, na.rm = T)) %>%
+  mutate(PropBleached = NumberBleached/Total) %>%
+  group_by(Size2, REGION) %>%
+  summarise(TotalColonies = sum(Total),
+            MeanBleach = mean(PropBleached, na.rm=T)) 
+
+dat.prop.SizeCat3 = dat.long %>% left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  filter(Genus %in% taxa) %>%
+  mutate(Size2 = ifelse(Size %in% c("<20cm","20-40cm"), "5-40cm", 
+                        ifelse(Size %in% c("40-60cm",">60cm"), ">40cm","Juv (<5cm)"))) %>%
+  group_by(Size2, Genus) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>%
+  mutate(PropBleached = NumberBleached/Total)
+
+table(dat.prop.reef$CatBleach)
+dat.prop.sum = dat.prop %>%
+  group_by(Region, Zone, Size) %>%
+  summarise(MeanBleach = mean(PropBleached, na.rm = T),
+            SEBleach = sd(PropBleached, na.rm = T)/sqrt(sum(!is.nan(PropBleached))))
+```
+
+
+```{r Lollipop Mod Arrange}
+hlines = dat.prop.BleachCat2 %>%
+  group_by(CatBleach) %>% summarise(Med = median(MeanBleach,na.rm = T))
+
+dat.prop.BleachCat2$Genus = factor(dat.prop.BleachCat2$Genus,levels = modarrange.taxa)
+ggplot(dat.prop.BleachCat2, aes(x=Genus, y=MeanBleach)) +
+  geom_hline(data=hlines, aes(yintercept = c(0.059, 0.14, 0.34, 0.58, 0.71)), linetype = "dashed")+
+  # geom_segment( aes(x=Genus, xend=Genus, y=0, yend=MeanBleach), color="grey") +
+  geom_linerange(data = dat.prop.BleachCat2,aes(ymin = MeanBleach-SEBleach, ymax = MeanBleach+SEBleach)) +
+  geom_point(data = dat.prop.BleachCat2,aes(color=MeanBleach), size=3, alpha=1) +
+  scale_colour_distiller(palette = "Spectral",labels=scales::percent) +
+  # scale_color_gradient2(midpoint =0.5, low = "blue", mid = "yellow",
+  #                           high = "red",labels=scales::percent) +
+  # scale_color_gradientn(colours = rev(heat.colors(5)), labels=scales::percent) +
+  # scale_colour_viridis(labels=scales::percent) +
+  theme_light(base_size = 14) + xlab("Taxonomy")+ labs(y = "Mean Percent Bleached") +
+  coord_flip() +
+  facet_grid(~CatBleach) + 
+  scale_y_continuous(labels = scales::percent, breaks = c(0,0.5,1)) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), legend.title = element_blank(),
+    legend.position = "bottom",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+ggsave(filename = "Figures/BleachingPropGenusBleach.png", device = "png", width = 8, height = 8, dpi = 300)
+ggsave(filename = "Figures/BleachingPropGenusBleach.tiff", device = "png", width = 8, height = 8, dpi = 300)
+ggsave(filename = "Figures/BleachingPropGenusBleach.svg", device = "png", width = 8, height = 8, dpi = 300)
+```
+
+# Bleaching Proportions by Reef Bleaching Category
+
+This section can be ignored as we are not using the 3D graph anymore
+
+```{r Bleaching by Category 3D Graph}
+# Categorise BLEaching Ctegory
+# 3D Gpplo
+# COnvert to wide format
+# install.packages("barplot3d")
+# install.packages("scatterplot3d")
+install.packages("epade")
+library(rayshader)
+library(rgl)
+library(barplot3d)
+library(scatterplot3d)
+library(epade)
+
+
+dat.3D = dat.prop.BleachCat %>%  filter(Total >10) %>% select(-Total, -NumberBleached) %>% spread(Genus,PropBleached)
+
+colSums(dat.3D[,-1])
+rowname3d = dat.3D$CatBleach
+dat.3D = as.matrix(dat.3D[,-1])
+row.names(dat.3D) = rowname3d
+dat.3D = dat.3D[,-as.numeric(which(is.na(colSums(dat.3D))))]
+taxa = colnames(dat.3D)
+
+dat.BleachCat = dat.prop.BleachCat %>% filter(Genus %in% colnames(dat.3D)) %>% 
+  select(-Total, -NumberBleached) %>%
+  arrange(CatBleach, -PropBleached) %>%
+  mutate(Rank = 1:20)
+
+nCOlonies = dat.prop.BleachCat %>% filter(Genus %in% colnames(dat.3D)) %>% 
+  group_by(CatBleach)%>% summarise(TotalColonies = sum(Total)) 
+
+dat.BleachCat.Arrange =  dat.long %>% 
+  left_join(select(dat.prop.reef, Reef, CatBleach)) %>%
+  filter(Genus %in% taxa) %>%
+  group_by(Genus) %>%
+  summarise(Total = sum(Number),
+            NumberBleached = sum(NoBleached)) %>%
+  mutate(PropBleached = NumberBleached/Total) %>% arrange(PropBleached) %>% pull(Genus)
+  
+
+dat.3D = dat.BleachCat %>% select(-Genus) %>% spread(Rank,PropBleached)
+dat.3D = as.matrix(dat.3D[,-1])
+row.names(dat.3D) = rowname3d
+
+col.3D = dat.3D
+colours = c("#3BAEE5", "#06A53F", "#FAEA01", "#FCC200", "#E40D14")
+col.3D[1,] = colours[1]; col.3D[2,] = colours[2];
+col.3D[3,] = colours[3];col.3D[4,] = colours[4];col.3D[5,] = colours[5];
+
+# install.packages("plot3D")
+library(plot3D)
+
+hist3D (x = 1:5, y = 1:20, z = dat.3D,
+        bty = "g", phi = 20,  theta = -60,
+        # col=jet.col(5),
+        xlab = "", ylab = "", zlab = "", main = "VADeaths",
+        border = "black", shade = 0.8,
+        ticktype = "detailed", space = 0.15, d = 2, cex.axis = 1e-9)
+# Use text3D to label x axis
+ text3D(x = 1:5, y = rep(21, 5), z = rep(20, 5),
+       labels = rownames(dat.3D),
+       add = TRUE, adj = 1)
+# Use text3D to label y axis
+ text3D(x = rep(1, 20),   y = 1:20, z = rep(0, 20),
+       labels  = 1:20,
+       add = TRUE, adj = 1)
+
+
+## Make a prettier 3D barplot with more advanced features
+
+inputdata=as.vector(t(dat.3D))
+barplot3d(rows=5,cols=20,z=inputdata,scalexy=0.05,alpha=1,theta=20,phi=20,
+          topcolors=as.vector(t(col.3D)),sidecolors=as.vector(t(col.3D)),xlabels = 1:20,ylabels=rowname3d,
+          xsub="Numbers",ysub="Letters",zsub="Count",gap = 0)
+inputdata=round(rnorm(15,10,3))
+barplot3d(rows=3,cols=5,z=inputdata,scalexy=5,alpha=0.4,theta=30,phi=50,
+          topcolors=rainbow(15),xlabels = 1:5,ylabels=LETTERS[1:3],
+          xsub="Numbers",ysub="Letters",zsub="Count")
+
+
+mtcars_gg = ggplot(mtcars) + 
+  geom_point(aes(x=mpg,color=cyl,y=disp),size=2) +
+  scale_color_continuous(limits=c(0,8)) +
+  ggtitle("mtcars: Displacement vs mpg vs # of cylinders") +
+  theme(title = element_text(size=8),
+        text = element_text(size=12)) 
+
+plot_gg(mtcars_gg, height=3, width=3.5, multicore=TRUE, pointcontract = 0.7, soliddepth=-200)
+
+my.mat <- matrix(runif(25), nrow = 5)
+dimnames(my.mat) <- list(LETTERS[1:5], letters[11:15])
+s3d.dat <- data.frame(columns = c(col(my.mat)),
+rows = c(row(my.mat)), value = c(my.mat))
+
+s3d.dat = dat.BleachCat[,c(4,1,3)]
+scatterplot3d(s3d.dat, type = "h", lwd = 10, pch = 22,
+  x.ticklabs = 1:20, tick.marks = T, y.ticklabs = rownames(dat.3D),box = FALSE,
+  color = as.vector(t(col.3D)))
+
+
+bar3d.ade(dat.3D*100, wall=2, col=col.3D, alpha = 0.9,bgcol = "white",fgbox = F, 
+          lcol = "darkgrey",yticks = c(0,20,40,60,80,100),xticks = paste(1:20),xw=1, zw=1.2,
+          xlab = "Taxa Rank", ylab = "Colonies Bleached (%)", zlab = "Severity",
+          zticks = c("Low", "Moderate", "High", "Severe", "Extreme"))
+export::graph2vector(file = "Figures/BleachPlot",width=12, height =7)
+export::graph2tif(file = "Figures/BleachPlot", width=12, height =7, dpi=300)
+OrderTable = dat.BleachCat %>% select(-PropBleached) %>% spread(CatBleach, Rank) %>% arrange(`0-10%`)
+write.csv(OrderTable,"Figures/BleachCatRank.csv")
+
+
+
+levels(dat.BleachCat$CatBleach) = c("Low", "Moderate", "High", "Severe", "Extreme")
+dat.BleachCat$Genus = factor(dat.BleachCat$Genus,levels = dat.BleachCat.Arrange)
+
+nCOlonies$Genus = factor("Stylophora",levels = dat.BleachCat.Arrange)
+nCOlonies$PropBleached = 0.9
+
+
+ggplot(dat.BleachCat, aes(x=Genus, y=PropBleached, fill = CatBleach)) +
+  geom_bar(stat = "identity") +facet_wrap(~CatBleach, ncol = 5) +coord_flip() +
+  scale_fill_manual(values = colours) +
+  scale_y_continuous(labels = scales::percent, breaks = c(0,0.5,1)) +
+  ylab("Colonies Bleached (%)") + theme_bw(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+    legend.key.width = unit(2,"cm"), legend.title = element_blank(),
+    legend.position = "nome",
+    panel.grid.major.y = element_blank(),
+    # panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  ) + 
+  geom_label(data = nCOlonies,aes(x = 20, y = 0.4, label = paste0("n = ",TotalColonies)),
+             fill="white", hjust = 0)
+export::graph2vector(file = "Figures/BleachPlot2",width=9, height =7)
+export::graph2tif(file = "Figures/BleachPlot2", width=9, height =7, dpi=300)
+```
+
+```{r nMDS Coral Composition}
+coral = dat.long %>% left_join(dplyr::select(dat.prop.reef,Reef, CatBleach))%>%
+  group_by(Year,Reef,CatBleach,Genus) %>%
+  summarise(Total = sum(Number)) %>%
+  filter(Genus %in% dat.arrangetaxa) %>%
+  spread(Genus, Total,fill = 0) 
+
+library(vegan)
+library(MASS)
+
+coral.samp = coral[1:3]
+coral.faun = coral[5:23]
+
+# Dissimilarity Matrix
+coral.faun2 = coral.faun[ rowSums(coral.faun)!=0,]
+coral.samp2 = coral.samp[ rowSums(coral.faun)!=0,]
+
+CORAL.dis = vegdist(coral.faun2, "bray")
+# NMDS
+CORAL.nmds = metaMDS(coral.faun2, maxit=400, trymax = 100)
+
+# Make summmaries at site level --> not fixed transects
+anova(betadisper(CORAL.dis,coral.samp2$CatBleach))
+# Analysis of Similarity - ANOSIM
+CORAL.ano <- anosim(CORAL.dis, coral.samp2$CatBleach)
+CORAL.ado <- adonis(coral.faun2 ~ CatBleach, data= coral.samp2)
+
+
+
+# library(devtools)
+# install_github("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis")
+library(pairwiseAdonis)
+CORAL.Pado = pairwise.adonis(coral.faun2, coral.samp2$CatBleach)
+# Print pVal
+CORAL.ano$signif
+CORAL.ano$statistic
+CORAL.ano
+
+write.csv(CORAL.ado[["aov.tab"]], "Data/PermanovaResults.csv")
+write.csv(CORAL.Pado, "Data/PairwisePermanovaResults.csv")
+
+coral = dat.long %>% left_join(dplyr::select(dat.prop.reef,Reef, CatBleach))%>%
+  group_by(Year,Reef,CatBleach,Site, Genus) %>%
+  summarise(Total = sum(Number)) %>%
+  filter(Genus %in% dat.arrangetaxa) %>%
+  spread(Genus, Total,fill = 0) 
+
+library(vegan)
+library(MASS)
+
+coral.samp = coral[1:4]
+coral.faun = coral[5:24]
+
+# Dissimilarity Matrix
+coral.faun2 = coral.faun[ rowSums(coral.faun)!=0,]
+coral.samp2 = coral.samp[ rowSums(coral.faun)!=0,]
+
+CORAL.dis = vegdist(coral.faun2, "bray")
+# NMDS
+CORAL.nmds = metaMDS(coral.faun2, maxit=400, trymax = 100)
+
+# Get Scores to build in GGplot
+data.scores <- as.data.frame(scores(CORAL.nmds))  #Using the scores function from vegan to extract the site scores and convert to a data.frame
+data.scores$site <- rownames(data.scores)  # create a column of site names, from the rownames of data.scores
+data.scores$grp <- coral.samp2$CatBleach
+data.scores$location <- coral.samp2$Reef
+data.scores$yr <- coral.samp2$Year
+
+#  add the grp variable created earlier
+head(data.scores)  #look at the data
+
+species.scores <- as.data.frame(scores(CORAL.nmds, "species"))  #Using the scores function from vegan to extract the species scores and convert to a data.frame
+species.scores$species <- rownames(species.scores)  # create a column of species, from the rownames of species.scores
+head(species.scores)
+
+grps = levels(data.scores$grp)
+locs = levels(data.scores$location)
+yrs = unique(data.scores$yr)
+
+hull.data = data.scores[-(1:nrow(data.scores)),]
+for (g in 1:length(grps)){
+      grp = data.scores[data.scores$grp == grps[g],][chull(data.scores[data.scores$grp == grps[g], c("NMDS1", "NMDS2")]), ]
+      hull.data = rbind(hull.data, grp)
+      
+  }
+
+  
+
+pHull = ggplot() + 
+  geom_polygon(data=hull.data,
+               aes(x=NMDS1,y=NMDS2,fill=as.factor(grp),group=as.factor(grp)),alpha=0.5) + # add the convex hulls
+  geom_point(data=data.scores,aes(x=NMDS1,y=NMDS2,fill=as.factor(grp),shape=as.factor(grp),
+                                     colour=as.factor(grp)),size=2) + # add the point markers
+  # geom_segment(data=data.scoresFvL_W, 
+  #              aes(x=`1995_NMDS1`, y=`1995_NMDS2`, xend=`2020_NMDS1`, yend=`2020_NMDS2`), 
+  #              arrow = arrow(angle = 30, type = "closed", length = unit(0.25, "cm")), colour="darkgrey") + 
+  geom_label(data=species.scores,
+             aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  scale_colour_manual(values=colours) +
+  scale_fill_manual(values=colours) +
+  # scale_shape_manual(values = 16:17) +
+  coord_equal() +
+  guides(fill=guide_legend(title="Bleaching\nCategory", reverse =F)) +
+  guides(color=guide_legend(title="Bleaching\nCategory", reverse =F)) +
+  guides(shape=guide_legend(title="Bleaching\nCategory", reverse =F)) +
+  # geom_rect(aes(ymin = 0.75, ymax = 0.95, xmin = 0.55, xmax = 0.99), fill= "white", color = "black") +
+  # annotate(geom="text", x=0.99, y=0.9, label="Stress = 0.099", hjust=1) +
+  # annotate(geom="text", x=0.99, y=0.83, label="R = 0.863", hjust=1) +
+  # annotate(geom="text", x=0.99, y=0.76, label="P = 0.001", hjust=1) +
+  theme_bw(base_size=14) +
+  # ggtitle("(b)")+
+  theme(axis.text.x = element_blank(),  # remove x-axis text
+        axis.text.y = element_blank(), # remove y-axis text
+        axis.ticks = element_blank(),  # remove axis ticks
+        legend.position = "right",
+        # axis.title.x = element_text(size=18), # remove x-axis labels
+        # axis.title.y = element_text(size=18), # remove y-axis labels
+        panel.background = element_blank(), 
+        panel.grid.major = element_blank(),  #remove major-grid labels
+        panel.grid.minor = element_blank(),  #remove minor-grid labels
+        plot.background = element_blank()) 
+
+```
+
+
+```{r Coral Composition Plot}
+dat.prop.BleachCat4 = dat.long %>% 
+  left_join(dplyr::select(dat.prop.reef, Reef, CatBleach)) %>%
+  filter(Genus %in% taxa) %>%
+  group_by(CatBleach) %>%
+  mutate(Total = sum(Number)) %>%
+  group_by(CatBleach, Genus) %>%
+  summarise(Total = mean(Total),
+            GenusTotal = sum(Number),
+            GenusProp = GenusTotal/Total) %>%
+  group_by(CatBleach) %>% arrange(CatBleach,-GenusProp) %>%
+  mutate(CUM = cumsum(GenusProp),
+         Genus = factor(Genus, levels=rev(modarrange.taxa)))
+
+pComp = ggplot(dat.prop.BleachCat4, aes(fill=Genus, y=GenusProp, x=CatBleach)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_bw(base_size = 14) +
+  xlab("Bleaching Category") + ylab("Proportion of Live Coral")
+
+lay = rbind(1,1,1,1,2,2,2,2)
+gridExtra::grid.arrange(pHull,pComp, ncol=1)
+g=gridExtra::arrangeGrob(pHull,pComp, ncol=1
+                         , layout_matrix = lay
+                         )
+ggsave(file="Figures/FigureComp.tiff",g,dpi =300, width=8, height=12)
+ggsave(file="Figures/FigureComp.svg",g, dpi=300, width=8, height=12)
+ggsave(file="Figures/FigureCOmp.png",g, dpi=300, width=8, height=12)
+
+```
+
+
+

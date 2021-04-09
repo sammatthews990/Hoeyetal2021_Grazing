@@ -1,0 +1,250 @@
+---
+etitle: "Alage Analyses"
+author: "Samuel Matthews"
+date: "18 November 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Algae Herbivory Susceptibility
+
+### Q1 Are shallow water algae's removed at a faster rate?
+
+```{r Load and Wrangle Data}
+library(tidyverse)
+library(lme4)
+library(glmmTMB)
+library(emmeans)
+dat.thall = readxl::read_xls("Whole thallus assays.xls")
+dat.thall = dat.thall %>% gather(Species, Percent, -Rope) %>%
+  separate(Species, c("Species", "Obs"), -1) %>%
+  mutate(Obs.Int = as.integer(Obs)+1,
+         Obs = as.character(Obs.Int),
+         Percent2 = Percent/100) %>%
+  mutate(Percent2 = ifelse(Percent2 ==1, 0.99, ifelse(Percent2==0, 0.01, Percent2)))
+
+dat.thall2 = unique(dat.thall[,1:2]) %>% 
+  mutate(Obs = "0", Percent = 100, Obs.Int = 0, Percent2 = 0.99)
+
+dat.thall = bind_rows(dat.thall, dat.thall2)
+
+ggplot(dat.thall, aes(x=Obs.Int, y=Percent/100, group=Rope, colour = Species)) +
+  geom_line() +facet_wrap(~Species) #+ geom_smooth(method="glm", method.args=c(family = "binomial"))
+
+
+thall.glmm =glmmTMB(Percent2 ~ Species*Obs + (1|Rope), data=dat.thall, family=binomial())
+thall.glmmdat.thall$PercentAsin = asin(sqrt(dat.thall$Percent / 100))
+thall.lmer <- lmer(Percent ~ Species*Obs + (1|Rope), data=dat.thall)
+thall.lmer2 <- lmer(PercentAsin ~ Species*Obs + (1|Rope), data=dat.thall)
+AIC(thall.lmer,thall.lmer2)
+mod_em1 = emmeans(thall.lmer, ~Species|Obs)
+mod_em12 = emmeans(thall.lmer2, ~Species|Obs)
+
+cld.SpecObs = multcomp::cld(mod_em12,Letters=LETTERS, details=T)
+summary(thall.lmer)
+cld.letters = cld.SpecObs[["emmeans"]] %>% select(Species, Obs, .group)
+
+dat.thall.sum = dat.thall %>% 
+  group_by(Species, Obs, Obs.Int) %>%
+  summarise(mn = mean(Percent),
+            se = sd(Percent)/sqrt(n())) %>%
+  left_join(cld.letters)
+SpecOrder = dat.thall.sum %>%
+  filter(Obs.Int ==6) %>% arrange(-mn) %>% pull(Species)
+dat.thall.sum$Species = factor(dat.thall.sum$Species, levels = SpecOrder)
+
+labelPos = dat.thall.sum %>% group_by(Obs, Obs.Int, .group) %>%
+  summarise(mn = mean(mn)) %>%
+  mutate(group = str_trim(.group))
+
+
+p1 = ggplot(dat.thall.sum, aes(x=Obs, y=mn/100)) +
+  geom_pointrange(aes(ymin=mn/100-se/100, ymax=mn/100+se/100, colour=Species), 
+                  position = position_dodge(width = -0.3), size=0.8) +
+  geom_line(aes(x=Obs.Int+1, y=mn/100, colour=Species),
+            position = position_dodge(width = -0.3)) + 
+  theme_bw(base_size = 14) +
+  labs(x="Observation (Days)", y="Percent Remaining (+/- SE)") + 
+  geom_label(data=labelPos, aes(x=Obs.Int+1.4, y=mn/100, fill = group), 
+             label=labelPos$group, color = "white") +
+  guides(fill=F) + scale_colour_hue(c=80,l=60) +
+  scale_y_continuous(labels = scales::percent) + 
+  scale_fill_viridis_d() + 
+  scale_x_discrete(labels = c("0", "0.25","1", "2", "3", "4", "5", "6"))
+
+
+ggsave(file="Figures/FigureMod.tiff",p1, dpi =300, width=8, height=6)
+ggsave(file="Figures/FigureMod.svg",p1, dpi=300, width=8, height=6)
+ggsave(file="Figures/FigureMod.png",p1, dpi=300, width=8, height=6)
+```
+
+### Q2 Are blades coated in chemical extract avoided?
+
+
+```{r}
+dat.chem = readxl::read_xlsx("Chemical extract assays.xlsx")
+dat.chem = dat.chem %>% gather(Treatment, Percent, -Date,-Species,-Pair) %>%
+  separate(Treatment, c("Treatment", "Obs"), -1) 
+dat.chem.sum = dat.chem %>%
+  group_by(Species, Pair, Treatment) %>%
+  summarise(n= n(),
+            Percent= mean(Percent),
+            se = sd(Percent)/sqrt(n))
+dat.chem.sum2 = dat.chem %>%
+  group_by(Species, Treatment, Pair) %>%
+  summarise(mn= mean(Percent,na.rm=T)) %>%
+  group_by(Species, Treatment) %>%
+  summarise(Percent= mean(mn,na.rm=T),
+            se = sd(mn, na.rm = T)/sqrt(n()))
+ggplot(dat.chem, aes(x=Treatment, y=Percent/100, fill = Species)) +
+  geom_boxplot(alpha =0.3) +facet_wrap(~Species)
+
+ggplot(dat.chem.sum, aes(x=Treatment, y=Percent/100, fill = Species)) +
+  geom_boxplot(alpha =0.3) +facet_wrap(~Species)
+
+chem.lmer <- lmer(Percent ~ Species*Treatment + (1|Pair), data=dat.chem.sum)
+chem.lmer2 <- lmer(Percent ~ Species*Treatment + (Species|Pair), data=dat.chem.sum)
+AIC(thall.lmer,thall.lmer2)
+mod_em2.1 = emmeans(chem.lmer, ~Treatment|Species)
+mod_em2.2 = emmeans(chem.lmer, ~Species|Treatment)
+# mod_em2.2 = emmeans(chem.lmer2, ~Species|Treatment)
+
+cld.ChemObs = multcomp::cld(mod_em2.1,Letters=LETTERS, details=T)
+summary(chem.lmer)
+cld.letters.Chem = cld.ChemObs[["emmeans"]] %>% select(Species, Treatment, .group)
+dat.chem.sum = dat.chem.sum %>% 
+  left_join(cld.letters.Chem) %>% 
+  mutate(group = str_trim(.group))
+
+cld.ChemObs.2 = multcomp::cld(mod_em2.2,Letters=LETTERS, details=T)
+summary(chem.lmer)
+cld.letters.Chem.2 = cld.ChemObs.2[["emmeans"]] %>% select(Species, Treatment, .group)
+dat.chem.sum.lab = dat.chem.sum %>%ungroup() %>% select(Species, Treatment) %>% distinct() %>%
+  left_join(cld.letters.Chem.2, by = c("Species", "Treatment")) %>% 
+  mutate(group = str_trim(.group))
+  
+
+SpecOrder = dat.chem.sum %>%
+  filter(Treatment =="control") %>% group_by(Species) %>% 
+  summarise(md = median(Percent)) %>%
+  arrange(-md) %>% pull(Species) %>% unique() 
+
+
+
+dat.chem.sum$Species = factor(dat.chem.sum$Species, levels = SpecOrder)
+dat.chem.sum$Treatment = as.factor(dat.chem.sum$Treatment)
+dat.chem.sum.lab$Treatment = as.factor(dat.chem.sum.lab$Treatment)
+levels(dat.chem.sum$Treatment) = c("Control", "Treatment")
+levels(dat.chem.sum.lab$Treatment) = c("Control", "Treatment")
+p2 = ggplot(dat.chem.sum, aes(x=Treatment, y=Percent/100, fill = Species)) +
+  geom_boxplot(alpha =0.3) +facet_wrap(~Species) +
+  geom_label(aes(x=Treatment, y=0.05,  label=group),fill ="white")  +
+  scale_y_continuous(labels = scales::percent) +
+  theme_bw(base_size = 14) + guides(fill=F)+
+  labs(x="Treatment", y="Percent Consumed") 
+
+labelPos.Chem = dat.chem.sum %>% group_by(Species, Treatment, .group) %>%
+  summarise(mn = mean(Percent)) %>%
+  mutate(group = str_trim(.group))
+perf1 =performance::check_model(chem.lmer)
+perf2 = performance::check_model(thall.lmer2)
+perf3 = performance::check_model(thall.glmm)
+perf4 = performance::check_model(thall.lmer)
+perf1
+perf2
+perf3
+perf4
+
+ggsave(file="Figures/FigureMod2.tiff",p2, dpi =300, width=8, height=7)
+ggsave(file="Figures/FigureMod2.svg",p2, dpi=300, width=8, height=7)
+ggsave(file="Figures/FigureMod2.png",p2, dpi=300, width=8, height=7)
+
+# Plt comparing each species at conrol and treatment levels
+
+
+p3 = ggplot(dat.chem.sum, aes(x=Species, y=Percent/100, fill = Species)) +
+  geom_boxplot(alpha =0.3) +facet_wrap(~Treatment) +
+  geom_label(data=dat.chem.sum.lab,aes(x=Species, y=0.05,  label=group),fill ="white")  +
+  scale_y_continuous(labels = scales::percent) +
+  theme_bw(base_size = 14) + 
+  labs(x="Species", y="Percent Consumed") +coord_flip() +
+  guides(fill=F)
+
+ggsave(file="Figures/FigureMod3.tiff",p3, dpi =300, width=8, height=7)
+ggsave(file="Figures/FigureMod3.svg",p3, dpi=300, width=8, height=7)
+ggsave(file="Figures/FigureMod3.png",p3, dpi=300, width=8, height=7)
+```
+
+```{r THall Model brms}
+library(brms)
+library(tidyverse)
+library(tidybayes)
+
+m1priors = get_prior(formula = Percent2 ~ Species*Obs + (1|Rope), 
+                     data=dat.thall, family="zero_one_inflated_beta")
+mod1.brms = brm(formula =Percent2 ~ Species*Obs + (1|Rope), 
+                     data=dat.thall, family="zero_one_inflated_beta",
+                prior = m1priors, sample_prior = T,
+                warmup = 200, iter = 500, chains = 3, cores = 3, thin=5
+                # control = list(adapt_delta = 0.995,
+                #                max_treedepth=15)
+                )
+perf.brms1 = performance::check_model(mod1.brms)
+library(performance)
+r2_bayes(mod1.brms)
+
+mod_em1 = emmeans(mod1.brms, ~Species|Obs)
+
+cld.SpecObs = multcomp::cld(mod_em1,Letters=LETTERS, details=T)
+cld.letters = cld.SpecObs[["emmeans"]] %>% select(Species, Obs, .group)
+
+dat.thall.sum = dat.thall %>% 
+  group_by(Species, Obs, Obs.Int) %>%
+  summarise(mn = mean(Percent),
+            se = sd(Percent)/sqrt(n())) %>%
+  left_join(cld.letters)
+SpecOrder = dat.thall.sum %>%
+  filter(Obs.Int ==6) %>% arrange(-mn) %>% pull(Species)
+dat.thall.sum$Species = factor(dat.thall.sum$Species, levels = SpecOrder)
+
+labelPos = dat.thall.sum %>% group_by(Obs, Obs.Int, .group) %>%
+  summarise(mn = mean(mn)) %>%
+  mutate(group = str_trim(.group))
+
+pAlg = 
+  dat.thall %>%
+  modelr::data_grid(Species, Obs, Rope) %>%
+  add_fitted_draws(mod1.brms, re_formula = NULL) %>%
+  # mutate(susc = factor(susc, levels=c("H", "M", "L"), labels=c("High", "Medium", "Low"))) %>%
+  ggplot(aes(x = Obs,colour=Species, fill=Species)) +
+  stat_lineribbon(aes(y=.value*100), .width = c(0.95,.8,.5), alpha=0.25) +
+  geom_pointrange(data=dat.thall.sum,aes(y=mn,ymin=mn-se, ymax=mn+se, colour=Species), 
+                  position = position_dodge(width = -0.3), size=0.8) +
+  labs(x="Observation (Days)", y="Percent Remaining (+/- SE)") + 
+  geom_label(data=labelPos, aes(x=Obs.Int+1.4, y=mn, fill = group), 
+             label=labelPos$group, color = "white") +
+  guides(fill=F) + scale_colour_hue(c=80,l=60) +
+  scale_fill_viridis_d() + 
+  scale_x_discrete(labels = c("0", "0.25","1", "2", "3", "4", "5", "6")) +
+  scale_colour_viridis_d()+
+  theme_bw(base_size = 14) 
+
+pAlg
+
+ggsave(file="Figures/FigureModBRM.tiff",pAlg, dpi =300, width=8, height=6)
+ggsave(file="Figures/FigureModBRM.svg",pAlg, dpi=300, width=8, height=6)
+ggsave(file="Figures/FigureModBRM.png",pAlg, dpi=300, width=8, height=6)
+```
+
+```{r}
+write.csv(cld.ChemObs[["comparisons"]], "Data/Comp_Figure2.csv", row.names = F)
+write.csv(cld.ChemObs.2[["comparisons"]], "Data/Comp_Figure3.csv", row.names = F)
+write.csv(cld.SpecObs[["comparisons"]], "Data/Comp_Figure1.csv", row.names = F)
+
+```
+
+
+
