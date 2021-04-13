@@ -64,7 +64,7 @@ dat.bites.sum = dat.bites %>% filter(!is.na(bites)) %>%
   spread(bite_on,TotalBites) %>%
   gather(bite_on, TotalBites, 5:6, na.rm = F) %>% arrange(Date, id, habitat, site) %>%
   dplyr::mutate(TotalBites = replace_na(TotalBites, 0))
-
+dat.bites.sum %>% group_by(habitat, site) %>% summarise(mean = mean(TotalBites/3), se = sd((TotalBites/3)/sqrt(n())))
 ggplot(dat.bites.sum, aes(x=site, y=Bites.hr, fill = bite_on)) +
   geom_boxplot() + facet_wrap(~habitat)
 m1priors = get_prior(formula =TotalBites ~ bite_on*habitat*site + (1|id/Date), 
@@ -111,8 +111,8 @@ mod.brms.bites3 = brm(formula =TotalBites ~ bite_on*habitat +site*habitat + (1|D
                               prior(normal(0, 5), class = "b"),
                               prior(student_t(3, 0, 2.5), class = "sd"),
                               prior(gamma(0.1, 0.1), class = "shape")),
-                    warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2
-                    # control = list(adapt_delta = 0.995,
+                    warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
+                    control = list(adapt_delta = 0.9)
                     #                max_treedepth=15)
                     )
 mod.brms.bites5 = brm(formula =TotalBites ~ bite_on*habitat+site*habitat + (1|Date) + (1|id), 
@@ -145,7 +145,9 @@ mod.brm4 = add_criterion(mod.brms.bites4,  "waic")
 mod.brm5 = add_criterion(mod.brms.bites5,  "waic")
 mod.brm6 = add_criterion(mod.brms.bites6,  "waic")
 loo::loo_compare(mod.brm1, mod.brm2, mod.brm3, mod.brm4,mod.brm5,mod.brm6,criterion = "waic")
-
+library(broom)
+tidyMCMC(mod.brms.bites$fit, conf.int = TRUE, conf.method = "HPDinterval", rhat = TRUE,
+    ess = TRUE)
 mod_em = emmeans::emmeans(mod.brms.bites,~ bite_on*habitat + site)
 mod_em
 summary(mod_em, type = "response")
@@ -154,22 +156,22 @@ multcomp::cld(mod_em)
 summary(mod.brms.bites)
 p3 = dat.bites.sum %>%
   modelr::data_grid(bite_on, habitat, site) %>%
-  add_fitted_draws(mod.brms.bites, re_formula = NULL,  n=1000) 
+  add_fitted_draws(mod.brms.bites3, re_formula = NULL,  n=1000) 
 
 p5 = dat.bites.sum %>%
   modelr::data_grid(bite_on, habitat) %>%
-  add_fitted_draws(mod.brms.bites, re_formula = NULL,  n=100) 
+  add_fitted_draws(mod.brms.bites3, re_formula = NULL,  n=100) 
 p4 = dat.bites.sum %>%
   modelr::data_grid(bite_on, habitat, site) %>%
   # spread_draws()
-  add_fitted_draws(mod.brms.bites, re_formula = NULL, n=100)  %>%
-  compare_levels(.value, by = bite_on) %>%
-  mutate(ifelse(.value <0,0.001,.value))
+  add_fitted_draws(mod.brms.bites3, re_formula = NULL, n=100)  %>%
+  compare_levels(.value, by = bite_on) 
 
 ggplot(p5, aes(y = .value/3, x = habitat, fill = habitat)) +
   theme_bw(base_size = 12) + 
-  coord_cartesian(ylim= c(0,600)) +
-  geom_point(data=dat.bites.sum, aes(y=TotalBites/3, x=habitat, colour=habitat), position = position_jitterdodge(),pch=1) +
+  coord_cartesian(ylim= c(0,400)) +
+  geom_point(data=dat.bites.sum, aes(y=TotalBites/3, x=habitat, colour=habitat), 
+             position = position_jitterdodge(jitter.width = 0.1),pch=1) +
   stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95)) +
   # stat_gradientinterval(position = "dodge") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
@@ -181,25 +183,30 @@ ggplot(p5, aes(y = .value/3, x = habitat, fill = habitat)) +
 
 p3.1 = ggplot(p3, aes(y = .value/3, x = site, fill = bite_on)) +
   theme_bw(base_size = 12) + 
-  # coord_cartesian(ylim= c(0,400)) +
-  geom_point(data=dat.bites.sum, aes(y=TotalBites/3, x=site, colour=bite_on), position = position_jitterdodge(),pch=1) +
+  coord_cartesian(ylim= c(0,400)) +
+  geom_point(data=dat.bites.sum, aes(y=TotalBites/3, x=site, colour=bite_on), 
+             position = position_jitterdodge(jitter.width = 0.1),pch=1) +
   stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95)) +
   # stat_gradientinterval(position = "dodge") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
-  scale_fill_viridis_d() +
-  scale_y_log10() +
-  scale_colour_viridis_d() +
+  scale_fill_manual(values=c("seagreen", "orange")) +
+  scale_colour_manual(values=c("seagreen", "orange")) +
+  # scale_fill_viridis_d() +
+  # scale_y_log10() +
+  # scale_colour_viridis_d() +
   theme(legend.position = "bottom",axis.title.x = element_blank()) +facet_grid(~habitat) +
   ylab("Proportion of progagules remaining")   
 
 p4.1  = ggplot(p4, aes(x = .value/3, y = site)) +
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95)) +
-  theme_bw(base_size = 12) + geom_hline(yintercept=0, linetype="dashed") +
+  theme_bw(base_size = 12) + geom_vline(xintercept=0, linetype="dashed") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
-  scale_x_log10() +
+  # scale_x_log10() +
   theme(legend.position = "right", axis.title.y = element_blank()) +facet_wrap(~habitat, ncol = 1) +
   ylab("Difference in proportion of propagules \nremaining (Caged-Exposed)") 
-egg::ggarrange(p3.1, p4.1, ncol=2, widths = c(1.2,1))
+g = egg::ggarrange(p3.1, p4.1, ncol=2, widths = c(1.4,1))
+ggsave("Figures/Grazing.png", plot = g, device = "png", 
+       width = 6, height = 4, dpi=300)
 ```
 
 ```{r Part 3 - Species Specific Grazing OLD}
@@ -301,11 +308,16 @@ egg::ggarrange(p5.1, p6.1, ncol=2, widths = c(1.2,1))
 ```
 
 ```{r Part 3 - Species Specific Grazing}
-dat.bites.spmodCS =  dat.bites.spmod %>% filter(species =="Ctenochaetus striatus")
-dat.bites.spmodSc =  dat.bites.spmod %>% filter(species =="Scarus")
-dat.bites.spmodAC =  dat.bites.spmod %>% filter(species =="Acanthurus")
-dat.bites.spmodES =  dat.bites.spmod %>% filter(species =="Ecsenius stictus")
-dat.bites.spmodPO =  dat.bites.spmod %>% filter(species =="Pomacentrus")
+dat.bites.spmodCS =  dat.bites.spmod %>% filter(species =="Ctenochaetus striatus") %>% 
+  mutate(TotalBites = round(TotalBites/3,0))
+dat.bites.spmodSc =  dat.bites.spmod %>% filter(species =="Scarus")%>% 
+  mutate(TotalBites = round(TotalBites/3,0))
+dat.bites.spmodAC =  dat.bites.spmod %>% filter(species =="Acanthurus")%>% 
+  mutate(TotalBites = round(TotalBites/3,0))
+dat.bites.spmodES =  dat.bites.spmod %>% filter(species =="Ecsenius stictus")%>% 
+  mutate(TotalBites = round(TotalBites/3,0))
+dat.bites.spmodPO =  dat.bites.spmod %>% filter(species =="Pomacentrus")%>% 
+  mutate(TotalBites = round(TotalBites/3,0))
 
 mod.brms.bitesspCS = brm(formula =TotalBites ~ bite_on + site + (1|Date), 
                     data=dat.bites.spmodCS, family="negbinomial", sample_prior = T,
@@ -338,7 +350,7 @@ mod.brms.bitesspES = brm(formula =TotalBites ~ bite_on*habitat + site + (1|Date)
                               prior(normal(0,5), class = "sd"), 
                               prior(gamma(0.1, 0.1), class = "shape")),
                     warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
-                    control = list(adapt_delta = 0.98))
+                    control = list(adapt_delta = 0.99))
 mod.brms.bitesspPO = brm(formula =TotalBites ~ bite_on*habitat + site + (1|Date), 
                     data=dat.bites.spmodPO, family="negbinomial", sample_prior = T,
                     prior = c(prior(normal(0, 5), class = "Intercept"),
@@ -347,29 +359,43 @@ mod.brms.bitesspPO = brm(formula =TotalBites ~ bite_on*habitat + site + (1|Date)
                               prior(gamma(0.1, 0.1), class = "shape")),
                     warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
                     control = list(adapt_delta = 0.98))
+mod_emCS = emmeans::emmeans(mod.brms.bitesspCS,~ bite_on, type="response")
+mod_emES = emmeans::emmeans(mod.brms.bitesspES,~ bite_on|habitat, type="response")
+mod_emPO = emmeans::emmeans(mod.brms.bitesspPO,~ bite_on|habitat, type="response")
+mod_emAC = emmeans::emmeans(mod.brms.bitesspAC,~ bite_on, type="response")
+mod_emSC = emmeans::emmeans(mod.brms.bitesspSc,~ bite_on, type="response")
 
+mod_emCS;mod_emES
+
+summary(mod.brms.bitesspES)
 # Ctenochaetus striatus ----
 pCS1 = dat.bites.spmodCS %>%
   modelr::data_grid(bite_on, species, site) %>%
   add_fitted_draws(mod.brms.bitesspCS, re_formula = NULL,  n=1000) 
+pCS1.1 = dat.bites.spmodCS %>%
+  modelr::data_grid(bite_on, species, site) %>%
+  add_fitted_draws(mod.brms.bitesspCS, re_formula = NULL,  n=1000) %>% group_by(bite_on)%>%
+  median_hdi(.value)
+
 pCS2 = dat.bites.spmodCS %>%
   modelr::data_grid(bite_on,species, site) %>%
   add_fitted_draws(mod.brms.bitesspCS, re_formula = NULL, n=100)  %>%
-  compare_levels(.value, by = bite_on) %>%
-  mutate(.value = .value/3)
+  compare_levels(.value, by = bite_on) 
 
-pCS.1 = ggplot(pCS1, aes(y = (.value/3), x=habitat, fill = bite_on, shape=bite_on)) +
+pCS.1 = ggplot(pCS1, aes(y = (.value), x=habitat, fill = bite_on, shape=bite_on)) +
   theme_bw(base_size = 12) +
   stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95)) +
   coord_cartesian(ylim= c(0,20)) +
-  geom_point(data=dat.bites.spmodCS, aes(y=(TotalBites/3), x=habitat, colour=bite_on), 
+  geom_point(data=dat.bites.spmodCS, aes(y=(TotalBites), x=habitat, colour=bite_on), 
              position = position_jitterdodge(jitter.width = 0.1),pch=1) +
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
   # stat_gradientinterval(position = "dodge") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
-  scale_fill_viridis_d() +
+  scale_fill_manual(values=c("seagreen", "orange")) +
+  scale_colour_manual(values=c("seagreen", "orange")) +
+  # scale_fill_viridis_d() +
   # scale_y_log10() +
-  scale_colour_viridis_d() +
+  # scale_colour_viridis_d() +
   theme(legend.position = "none",axis.title.x = element_blank(),axis.title.y = element_blank()) +
   facet_wrap(~species, scales = "free_y", ncol = 1)
 
@@ -411,9 +437,11 @@ pSC.1 = ggplot(pSC1, aes(y = (.value), x=habitat, fill = bite_on, shape=bite_on)
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
   # stat_gradientinterval(position = "dodge") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
-  scale_fill_viridis_d() +
+  scale_fill_manual(values=c("seagreen", "orange")) +
+  scale_colour_manual(values=c("seagreen", "orange")) +
+  # scale_fill_viridis_d() +
   # scale_y_log10() +
-  scale_colour_viridis_d() +
+  # scale_colour_viridis_d() +
   theme(legend.position = "none",axis.title.x = element_blank()) +
   facet_wrap(~species, scales = "free_y", ncol = 1) +
   ylab("Bites hr^-1")   
@@ -447,7 +475,6 @@ pAC2 = dat.bites.spmodAC %>%
   add_fitted_draws(mod.brms.bitesspAC, re_formula = NULL, n=100)  %>%
   compare_levels(.value, by = bite_on) %>%
   mutate(.value = .value/3)
-
 pAC.1 = ggplot(pAC1, aes(y = (.value), x=habitat, fill = bite_on, shape=bite_on)) +
   theme_bw(base_size = 12) +
   stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95)) +
@@ -457,9 +484,11 @@ pAC.1 = ggplot(pAC1, aes(y = (.value), x=habitat, fill = bite_on, shape=bite_on)
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
   # stat_gradientinterval(position = "dodge") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
-  scale_fill_viridis_d() +
+  scale_fill_manual(values=c("seagreen", "orange")) +
+  scale_colour_manual(values=c("seagreen", "orange")) +
+  # scale_fill_viridis_d() +
   # scale_y_log10() +
-  scale_colour_viridis_d() +
+  # scale_colour_viridis_d() +
   theme(legend.position = "bottom",axis.title.x = element_blank(),axis.title.y = element_blank(),
         legend.margin=margin(-13, 0, 0, 0)) +
   facet_wrap(~species, scales = "free_y", ncol = 1) 
@@ -505,9 +534,11 @@ pES.1 = ggplot(pES1, aes(y = (.value), x=habitat, fill = bite_on, shape=bite_on)
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
   # stat_gradientinterval(position = "dodge") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
-  scale_fill_viridis_d() +
+   scale_fill_manual(values=c("seagreen", "orange")) +
+  scale_colour_manual(values=c("seagreen", "orange")) +
+  # scale_fill_viridis_d() +
   # scale_y_log10() +
-  scale_colour_viridis_d() +
+  # scale_colour_viridis_d() +
   theme(legend.position = "none",axis.title.x = element_blank(),axis.title.y = element_blank()) +
   facet_wrap(~species, scales = "free_y", ncol = 1) 
   # ylab("Bites hr^-1")   
@@ -547,9 +578,11 @@ pPO.1 = ggplot(pPO1, aes(y = (.value), x=habitat, fill = bite_on, shape=bite_on)
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
   # stat_gradientinterval(position = "dodge") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
-  scale_fill_viridis_d() +
+  # scale_fill_viridis_d() +
+  scale_fill_manual(values=c("seagreen", "orange")) +
+  scale_colour_manual(values=c("seagreen", "orange")) +
   # scale_y_log10() +
-  scale_colour_viridis_d() +
+  # scale_colour_viridis_d() +
   theme(legend.position = "none",axis.title.x = element_blank(),axis.title.y = element_blank(),
         legend.margin=margin(-13, 0, 0, 0)) +
   facet_wrap(~species, scales = "free_y", ncol = 1) 
@@ -575,8 +608,14 @@ egg::ggarrange(pCS.1, pCS.2,pSC.1, pSC.2, pAC.1,pAC.2,ncol=2, widths = c(1.2,1))
 g = egg::ggarrange(pES.1, pES.2,pPO.1, pPO.2,
                pSC.1, pSC.2, pCS.1, pCS.2,pAC.1,pAC.2,ncol=2,nrow = 5, widths = c(1.2,1),heights = c(1.5, 1.5,1,1,1))
 
-ggsave("Figures/Grazing.png", plot = g, device = "png", 
+ggsave("Figures/GrazingSpecies.png", plot = g, device = "png", 
        width = 6, height = 8, dpi=300)
+
+CS.Sum = dat.bites.spmodCS %>%
+  modelr::data_grid(bite_on, species, site) %>%
+  add_fitted_draws(mod.brms.bitesspCS, re_formula = NULL,  n=1000) %>% mutate(.value = .value/3)%>%
+  group_by(bite_on)%>%
+  median_qi(.value)
 ```
 
 

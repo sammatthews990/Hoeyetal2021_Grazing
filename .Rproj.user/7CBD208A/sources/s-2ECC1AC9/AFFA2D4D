@@ -12,15 +12,15 @@
     "path" : null,
     "project_path" : null,
     "properties" : {
-        "cacheKey" : "C367BA0B",
+        "cacheKey" : "6A336B16",
         "caption" : "dat.bites.spmodCS",
-        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.bites.spmodCS&cache_key=C367BA0B",
-        "displayedObservations" : 42,
+        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.bites.spmodCS&cache_key=6A336B16",
+        "displayedObservations" : "42",
         "environment" : "",
         "object" : "dat.bites.spmodCS",
-        "preview" : 0,
-        "totalObservations" : 42,
-        "variables" : 7
+        "preview" : "0",
+        "totalObservations" : "42",
+        "variables" : "7"
     },
     "relative_order" : 15,
     "source_on_save" : false,

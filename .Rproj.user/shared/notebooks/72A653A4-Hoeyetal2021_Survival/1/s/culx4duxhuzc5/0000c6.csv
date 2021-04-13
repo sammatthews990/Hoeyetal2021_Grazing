@@ -1,0 +1,4 @@
+"0","dat.bites.sum %>% group_by(habitat, site) %>% summarise(mean = mean(TotalBites/3), se = sd((TotalBites/3)/sqrt(n())))
+"
+"2","`summarise()` regrouping output by 'habitat' (override with `.groups` argument)
+"
