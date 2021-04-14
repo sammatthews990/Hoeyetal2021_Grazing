@@ -12,15 +12,15 @@
     "path" : null,
     "project_path" : null,
     "properties" : {
-        "cacheKey" : "1E527EFF",
+        "cacheKey" : "6A9AC760",
         "caption" : "dat.bites.sum",
-        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.bites.sum&cache_key=1E527EFF",
-        "displayedObservations" : 150,
+        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.bites.sum&cache_key=6A9AC760",
+        "displayedObservations" : "150",
         "environment" : "",
         "object" : "dat.bites.sum",
-        "preview" : 0,
-        "totalObservations" : 150,
-        "variables" : 6
+        "preview" : "0",
+        "totalObservations" : "150",
+        "variables" : "6"
     },
     "relative_order" : 12,
     "source_on_save" : false,

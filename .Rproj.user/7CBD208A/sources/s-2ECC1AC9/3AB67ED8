@@ -12,9 +12,9 @@
     "path" : null,
     "project_path" : null,
     "properties" : {
-        "cacheKey" : "FA49CDA3",
+        "cacheKey" : "49DB9946",
         "caption" : "dat.bites",
-        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.bites&cache_key=FA49CDA3",
+        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.bites&cache_key=49DB9946",
         "displayedObservations" : "1885",
         "environment" : "",
         "object" : "dat.bites",
