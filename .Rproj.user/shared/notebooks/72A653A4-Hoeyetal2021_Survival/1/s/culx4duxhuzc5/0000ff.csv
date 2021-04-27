@@ -1,0 +1,11 @@
+"0","dat.bites.sum = dat.bites %>% filter(!is.na(bites)) %>%
+  group_by(Date, id, habitat, site, bite_on) %>%
+  summarise(TotalBites = sum(bites, na.rm =T)) %>%
+  mutate(id = factor(id), bite_on = factor(bite_on)) %>%
+  spread(bite_on,TotalBites) %>%
+  gather(bite_on, TotalBites, 5:6, na.rm = F) %>% arrange(Date, id, habitat, site) %>%
+  dplyr::mutate(TotalBites = replace_na(TotalBites, 0)) %>%
+  mutate(TotalBites = round(TotalBites/3,0))
+"
+"2","`summarise()` regrouping output by 'Date', 'id', 'habitat', 'site' (override with `.groups` argument)
+"

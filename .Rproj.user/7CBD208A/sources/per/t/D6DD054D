@@ -1,0 +1,29 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1618368601175.000,
+    "dirty" : false,
+    "encoding" : "",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "D6DD054D",
+    "lastKnownWriteTime" : 28429440806879331,
+    "last_content_update" : 1618368601175,
+    "path" : null,
+    "project_path" : null,
+    "properties" : {
+        "cacheKey" : "F92A1E2C",
+        "caption" : "p3a",
+        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=p3a&cache_key=F92A1E2C",
+        "displayedObservations" : "904000",
+        "environment" : "",
+        "object" : "p3a",
+        "preview" : "0",
+        "totalObservations" : "904000",
+        "variables" : "10"
+    },
+    "relative_order" : 31,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_dataframe"
+}

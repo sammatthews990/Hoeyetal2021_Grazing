@@ -74,11 +74,17 @@ dat.bites.sum = dat.bites %>% filter(!is.na(bites)) %>%
   dplyr::mutate(TotalBites = replace_na(TotalBites, 0)) %>%
   mutate(TotalBites = round(TotalBites/3,0))
 sum2 = dat.bites.sum %>% group_by(habitat,bite_on, site) %>% summarise(mean = mean(TotalBites), se = sd((TotalBites)/sqrt(n())))
+
+sum2 = dat.bites.sum %>% group_by(habitat,bite_on, site) %>% summarise(mean = mean(TotalBites), se = sd((TotalBites)/sqrt(n())))
+
+
+
+
 ggplot(dat.bites.sum, aes(x=site, y=Bites.hr, fill = bite_on)) +
   geom_boxplot() + facet_wrap(~habitat)
 m1priors = get_prior(formula =TotalBites ~ bite_on*habitat*site + (1|id/Date), 
                     data=dat.bites.sum, family="negbinomial")
-mod.brms.bites = brm(formula =TotalBites ~ bite_on*habitat +habitat*site  + (1|id/Date), 
+mod.brms.bites = brm(formula =TotalBites ~ bite_on*habitat +habitat*site  + (1|tl/Date), 
                     data=dat.bites.sum, family="negbinomial", sample_prior = T,
                     # prior = m1priors,
                     prior = c(prior(normal(0, 5), class = "Intercept"),
@@ -102,11 +108,12 @@ mod.brms.bites3 = brm(formula =TotalBites ~ bite_on*habitat +site*habitat + (1|D
                     #                max_treedepth=15)
                     )
 
+zero_inflated_negbinomial
+
 waic(mod.brm1, mod.brm4)
 mod.brm1 = add_criterion(mod.brms.bites,  "waic")
 mod.brm3 = add_criterion(mod.brms.bites3,  "waic")
-
-loo::loo_compare(mod.brm1,  mod.brm3,criterion = "waic")
+loo::loo_compare(mod.brm1,  mod.brm3, criterion = "waic")
 
 emmeans::emmeans(mod.brms.bites,~ bite_on|habitat + site, type="response")
 mod_embites = emmeans::emmeans(mod.brms.bites3,~ bite_on|habitat + site, type="response")
@@ -114,7 +121,7 @@ multcomp::cld(mod_embites)
 
 p3a = dat.bites.sum %>%
   modelr::data_grid(bite_on, habitat, site) %>%
-  add_predicted_draws(mod.brms.bites3, re_formula = NULL,  n=1000) 
+  add_fitted_draws(mod.brms.bites, re_formula = NULL,  n=1000) 
 p3b = dat.bites.sum %>%
   modelr::data_grid(bite_on, habitat, site) %>%
   add_fitted_draws(mod.brms.bites3, re_formula = NULL,  n=1000) 
@@ -139,7 +146,7 @@ ggplot(p5, aes(y = .value/3, x = habitat, fill = habitat)) +
   # facet_grid(~habitat) +
   ylab("Proportion of progagules remaining")   
 
-p3.1a = ggplot(p3a, aes(y = .prediction, x = site, fill = bite_on)) +
+p3.1a = ggplot(p3a, aes(y = .value, x = site, fill = bite_on)) +
   theme_bw(base_size = 12) + 
   coord_cartesian(ylim= c(0,400)) +
   geom_point(data=dat.bites.sum, aes(y=TotalBites, x=site, colour=bite_on), 
@@ -600,8 +607,136 @@ ggsave("Figures/GrazingSpecies.png", plot = g, device = "png",
 CS.Sum = dat.bites.spmodCS %>%
   modelr::data_grid(bite_on, species, site) %>%
   add_fitted_draws(mod.brms.bitesspCS, re_formula = NULL,  n=1000) %>% mutate(.value = .value/3)%>%
-  group_by(bite_on)%>%
+  group_by(bite_on) %>%
   median_qi(.value)
 ```
 
+```{r Benthic Surveys}
+dat.benth = readxl::read_xlsx("Data/Oct 17 benthic surveys.xlsx", sheet=2)
+dat.benth = dat.benth %>%
+  mutate(BenthosSum = ifelse(Benthos %in% c("Hard Coral", "Porites", "Juvenile coral"), "Hard Coral",
+                      ifelse(Benthos %in% c("Turbinaria", "Halimeda", "Dictyosphaeria"), "Macroalgae",
+                      ifelse(Benthos %in% c("Sand", "Rubble"), "Sand/Rubble",
+                      ifelse(Benthos == "CCA", "CCA", ifelse(Benthos=="Turf", "Turf", "Other"))))))
+dat.benthsum = dat.benth %>% 
+  group_by(Habitat, Site, BenthosSum) %>% summarise(Count = n()) %>%
+  mutate(Perc = Count/300) #%>%
+  group_by(Habitat, Site, BenthosSum) %>%
+  summarise(mn = mean(Perc),
+            no=n(),
+            se = sd(Perc)/sqrt(n()))
+dat.benthsum2 = dat.benth %>% 
+  group_by(Habitat, Site,`Transect number` ,BenthosSum) %>% summarise(Count = n()) %>%
+  mutate(Perc = Count/100) %>% select(-Count) %>%
+  spread(BenthosSum,Perc) %>%
+  gather(BenthosSum, Perc, 4:9,na.rm = F) %>% mutate(Perc = replace_na(Perc, 0)) %>%
+  group_by(Habitat, Site, BenthosSum) %>%
+  summarise(mn = mean(Perc),
+            # no=n(Count>0),
+            se = sd(Perc)/sqrt(n()))  
+  
+  
+p=ggplot(dat.benthsum, aes(x=Site, y=Perc)) +geom_col(aes(fill=BenthosSum)) +facet_grid(~Habitat) + 
+  scale_fill_viridis_d() +theme_bw()
 
+pBenth = ggplot(dat.benthsum2, aes(x=Site, y=mn)) +
+  geom_pointrange(aes(shape=BenthosSum, ymin=mn-se, ymax=mn+se), position = position_dodge(width=0.5)) +
+  facet_grid(~Habitat) + scale_y_continuous(labels = scales::percent) +
+  # scale_colour_viridis_d() +
+  theme_bw() + ylab("Mean % benthic cover +/- SE") + theme(axis.title.x = element_blank()) +
+  labs(shape="Benthos")
+ggsave("Figures/Benthos.png", plot = p, device = "png", 
+       width = 6, height = 4, dpi=300)
+```
+
+```{r Fish Surveys}
+dat.fish = readxl::read_xlsx("Data/Oct 17 fish surveys.xlsx", sheet=4) %>%
+  mutate(Species = `Fish species`) %>%
+  separate(`Fish species`, into = c("Genus", "Species2"), sep = " ") 
+
+dat.fish2 = readxl::read_xlsx("Data/Oct 17 fish surveys.xlsx", sheet="BenthicFish") %>%
+  mutate(Species = `Fish species`) %>%
+  separate(`Fish species`, into = c("Genus", "Species2"), sep = " ") %>%
+  filter(!`Include (Y/N)` == "n") %>%
+  mutate(Count = Count*2.5) %>% select(c(1:3, 6,8,10))
+colnames(dat.fish2)[4] = "Genus"
+
+dat.fishsum = dat.fish %>% 
+  group_by(Species) %>% summarise(Count = sum(Count)) %>% top_n(10, Count) %>%
+  pull(Species)
+dat.fishsum2 = dat.fish %>%
+  group_by(Habitat, Site,`Transect #` ,Species) %>% summarise(Count = sum(Count)) %>%
+  # mutate(Perc = Count/100) %>% select(-Count) %>%
+  spread(Species,Count) %>%
+  gather(Species,Count, 4:33,na.rm = F) %>% mutate(Count = replace_na(Count, 0)) %>%
+  filter(Species %in% dat.fishsum) %>%
+  group_by(Habitat, Site, Species) %>%
+  summarise(mn = mean(Count),
+            # no=n(Count>0),
+            se = sd(Count)/sqrt(n()))  
+
+dat.fishgen = dat.fish %>% select(c(1:4,7:8)) %>% rbind(dat.fish2) %>%
+  group_by(Genus) %>% summarise(Count = sum(Count)) %>% top_n(10, Count) %>%
+  pull(Genus)
+dat.fishgen2 = dat.fish %>% select(c(1:4,7:8)) %>% rbind(dat.fish2) %>%
+  group_by(Habitat, Site,`Transect #` ,Genus) %>% summarise(Count = sum(Count)) %>%
+  # mutate(Perc = Count/100) %>% select(-Count) %>%
+  spread(Genus,Count) %>%
+  gather(Genus,Count, 4:17,na.rm = F) %>% mutate(Count = replace_na(Count, 0)) %>%
+  # filter(Genus %in% dat.fishgen) %>% 
+  filter(!Genus %in% c("juv.", "Juv.", "Dark")) %>%
+  # mutate(Genus = recode(Genus, Dark = "Dark Parrot")) %>%
+  group_by(Habitat, Site, Genus) %>% 
+  summarise(mn = mean(Count),
+            # no=n(Count>0),
+            se = sd(Count)/sqrt(n()))  
+
+dat.fishgen2$Family = ifelse(dat.fishgen2$Genus %in% c("Acanthurus", "Ctenochaetus", "Naso", "Zebrasoma"), "Acanthuridae",
+                      ifelse(dat.fishgen2$Genus %in% c("Chlorurus", "Scarus"), "Labridae: Scarini",
+                      ifelse(dat.fishgen2$Genus %in% c("Ecsenius stictus", "other Blenniidae"), "Blenniidae",
+                      ifelse(dat.fishgen2$Genus %in% c("Pomacentrus spp", "other Pomacentridae"), "Pomacentridae", "Siganidae"))))
+dat.fishgen2$Facet = factor(ifelse(dat.fishgen2$Genus == "Pomacentrus spp", "Pomacentrus spp", "Other Species"),
+                            levels = c("Pomacentrus spp", "Other Species"))
+genusorder = dat.fishgen2 %>% ungroup %>% select(Genus, Family) %>% distinct() %>% arrange(Family) %>% pull(Genus)
+dat.fishgen2$Genus = factor(dat.fishgen2$Genus, levels = genusorder)
+p=ggplot(dat.benthsum, aes(x=Site, y=Perc)) +geom_col(aes(fill=BenthosSum)) +facet_grid(~Habitat) + 
+  scale_fill_viridis_d() +theme_bw()
+
+ggplot(dat.fishsum2, aes(x=Site, y=mn)) +
+  geom_pointrange(aes(colour=Species, ymin=mn-se, ymax=mn+se), position = position_dodge(width=0.5)) +
+  facet_grid(~Habitat) + 
+  scale_colour_viridis_d() +
+  theme_bw()
+
+pFish = ggplot(dat.fishgen2, aes(x=Site, y=mn, shape=Family)) +
+  geom_pointrange(aes(colour=Genus, shape=Family,  ymin=mn-se, ymax=mn+se), position = position_dodge(width=0.9)) +
+  facet_grid(Facet~Habitat, scales = "free_y") + 
+  scale_colour_viridis_d() +
+  # scale_y_sqrt() +
+  # scale_y_continuous(trans = scales::log_trans(base = 10)) +
+  # scale_y_sqrt(breaks = c(1,10,25,50,100,200)) +
+  theme_bw() + ylab("Mean Abundance per Transect +/- SE")
+
+pFish2 = ggplot(dat.fishgen2, aes(x=Site, y=mn)) +
+  geom_pointrange(aes(colour=Genus, ymin=mn-se, ymax=mn+se), position = position_dodge(width=0.5)) +
+  facet_grid(~Habitat) +
+  scale_colour_viridis_d() +
+  # scale_y_sqrt(breaks = c(1,10,50,100,200)) +
+  theme_bw() + ylab("Mean Abundance per Transect +/- SE")
+g = egg::ggarrange(pBenth, pFish, ncol = 1, heights = c(1,1.4))
+ggsave("Figures/BenthosFish.png", plot = g, device = "png", 
+       width = 7, height = 9, dpi=300)
+
+pFish3 = ggplot(dat.fishgen2, aes(x=Site, y=mn, shape=Family)) +
+  geom_pointrange(aes(colour=Genus, shape=Family,  ymin=mn-se, ymax=mn+se), position = position_dodge(width=0.9)) +
+  facet_grid(~Habitat, scales = "free_y") + 
+  scale_colour_viridis_d() +
+  # scale_y_sqrt() +
+  scale_y_continuous(trans = scales::log_trans(base = 10)) +
+  # scale_y_sqrt(breaks = c(1,10,25,50,100,200)) +
+  theme_bw() + ylab("Mean Abundance per Transect +/- SE")
+
+g1 = egg::ggarrange(pBenth, pFish3, ncol = 1, heights = c(1,1))
+ggsave("Figures/BenthosFish2.png", plot = g1, device = "png", 
+       width = 7, height = 7, dpi=300)
+```

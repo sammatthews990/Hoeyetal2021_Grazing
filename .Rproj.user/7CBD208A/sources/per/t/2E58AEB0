@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1617930005422.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3320604784",
+    "id" : "2E58AEB0",
+    "lastKnownWriteTime" : 1612331903,
+    "last_content_update" : 1612331903,
+    "path" : "~/GitHub/Burnetal2020_Injuries/Burnetal2020_Injuries.Rmd",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "577,21",
+        "scrollLine" : "567"
+    },
+    "relative_order" : 10,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

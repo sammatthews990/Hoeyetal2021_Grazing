@@ -1,0 +1,29 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1618461485508.000,
+    "dirty" : false,
+    "encoding" : "",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "D2940869",
+    "lastKnownWriteTime" : 32651513914720368,
+    "last_content_update" : 1618461485508,
+    "path" : null,
+    "project_path" : null,
+    "properties" : {
+        "cacheKey" : "3AF330DD",
+        "caption" : "dat.fishgen2",
+        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.fishgen2&cache_key=3AF330DD",
+        "displayedObservations" : "44",
+        "environment" : "",
+        "object" : "dat.fishgen2",
+        "preview" : "0",
+        "totalObservations" : "44",
+        "variables" : "6"
+    },
+    "relative_order" : 37,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_dataframe"
+}

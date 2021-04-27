@@ -1,0 +1,29 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1618280992015.000,
+    "dirty" : false,
+    "encoding" : "",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "79955FBA",
+    "lastKnownWriteTime" : 32651513914720368,
+    "last_content_update" : 1618280992015,
+    "path" : null,
+    "project_path" : null,
+    "properties" : {
+        "cacheKey" : "1CF00F4C",
+        "caption" : "dat.bites.spmodSc",
+        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.bites.spmodSc&cache_key=1CF00F4C",
+        "displayedObservations" : 24,
+        "environment" : "",
+        "object" : "dat.bites.spmodSc",
+        "preview" : 0,
+        "totalObservations" : 24,
+        "variables" : 7
+    },
+    "relative_order" : 16,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_dataframe"
+}
