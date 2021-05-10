@@ -12,15 +12,15 @@
     "path" : null,
     "project_path" : null,
     "properties" : {
-        "cacheKey" : "3AF330DD",
+        "cacheKey" : "C0CFA9BA",
         "caption" : "dat.fishgen2",
-        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.fishgen2&cache_key=3AF330DD",
+        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=dat.fishgen2&cache_key=C0CFA9BA",
         "displayedObservations" : "44",
         "environment" : "",
         "object" : "dat.fishgen2",
         "preview" : "0",
         "totalObservations" : "44",
-        "variables" : "6"
+        "variables" : "7"
     },
     "relative_order" : 37,
     "source_on_save" : false,

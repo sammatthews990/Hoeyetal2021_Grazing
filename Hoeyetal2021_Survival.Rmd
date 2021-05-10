@@ -57,7 +57,10 @@ p2 = ggplot(p2, aes(x = -.value, y = Site)) +
 g=egg::ggarrange(p1, p2, ncol=2, widths = c(1.4,1))
 ggsave("Figures/PropSurvival.png", plot = g, device = "png", 
        width = 8, height = 5, dpi=300)
-
+ggsave("Figures/PropSurvival.tiff", plot = g, device = "tiff", 
+       width = 8, height = 5, dpi=300)
+ggsave("Figures/PropSurvival.svg", plot = g, device = "svg", 
+       width = 8, height = 5, dpi=300)
 emmeans::emmeans(mod.brms.surv,~ Treatment*Habitat+Site, type="response")
 ```
 
@@ -128,11 +131,16 @@ multcomp::cld(mod_embites)
 
 p3a = dat.bites.sum %>%
   modelr::data_grid(bite_on, habitat, site) %>%
-  add_fitted_draws(mod.brms.bites, re_formula = NULL,  n=1000) 
+  add_fitted_draws(mod.brms.bites, re_formula = NULL,  n=1000)
+
 p3b = dat.bites.sum %>% 
   modelr::data_grid(bite_on, habitat, site) %>% 
-  add_fitted_draws(mod.brms.bites3, re_formula = NULL,  n=1000) #%>%
- #median_qi()
+  add_fitted_draws(mod.brms.bites3, re_formula = NULL,  n=1000) #%>% 
+  mutate(habitat = factor(ifelse(habitat == "Reef crest", "Crest", "Flat"), 
+                           levels = c("Crest", "Flat")))
+  
+ 
+
 p4 = dat.bites.sum %>%
   modelr::data_grid(bite_on, habitat, site) %>%
   # spread_draws()
@@ -141,9 +149,16 @@ p4 = dat.bites.sum %>%
 
 p3b = mod.brms.bites %>% emmeans(~ bite_on|habitat + site, type="response") %>%
   gather_emmeans_draws(type="response") %>%
-  mutate(.value = exp(.value))
+  mutate(.value = exp(.value)) %>% 
+  mutate(habitat = factor(ifelse(habitat == "Reef crest", "Crest", "Flat"), 
+                           levels = c("Crest", "Flat"))) 
 
-p4b = p3b %>% compare_levels(.value, by = bite_on)
+p4b = mod.brms.bites %>% emmeans(~ bite_on|habitat + site, type="response") %>%
+  gather_emmeans_draws(type="response") %>%
+  mutate(.value = exp(.value)) %>%
+  compare_levels(.value, by = bite_on) %>%
+  mutate(habitat = factor(ifelse(habitat == "Reef crest", "Crest", "Flat"), 
+                           levels = c("Crest", "Flat")))  
 
  
 
@@ -184,22 +199,27 @@ p3.1b = ggplot(p3b, aes(y = .value, x = site, fill = bite_on)) +
   # scale_colour_viridis_d() +
   theme(legend.position = "bottom",axis.title.x = element_blank(), legend.margin=margin(-10, 0, 0, 0),
         axis.title.y = element_text(family="sans"),legend.title = element_blank()) +facet_grid(~habitat) +
-  ylab(expression(Number~of~bites~hr^{"-1"}~"\U00B1"~"95% quantile intervals"))
+  ylab(expression(Number~of~bites~hr^{"-1"}~"+/-"~"95% credible intervals"))
 
 p4.1  = ggplot(p4b, aes(x = .value/3, y = site)) +
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),
-                     point_interval=median_hdi) +
+                     point_interval=median_qi) +
   theme_bw(base_size = 12) + geom_vline(xintercept=0, linetype="dashed") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
   # scale_x_log10() +
   scale_y_discrete(limits=rev) +
   theme(legend.position = "right", axis.title.y = element_blank(),
         legend.margin=margin(-13, 0, 0, 0)) +facet_wrap(~habitat, ncol = 1) +
-  xlab("Difference in Bites (Turf-Propagules)")
+  xlab("Difference in Bites \n(Turf-Propagules)")
 g = egg::ggarrange(p3.1b, p4.1, ncol=2, widths = c(1.4,1))
 ggsave("Figures/Grazing.png", plot = g, device = "png", 
-       width = 8, height = 5, dpi=300)
+       width = 6, height = 5, dpi=300)
+ggsave("Figures/Grazing.tiff", plot = g, device = "tiff", 
+       width = 6, height = 5, dpi=300)
+ggsave("Figures/Grazing.svg", plot = g, device = "svg", 
+       width = 6, height = 5, dpi=300)
 emmeans::emmeans(mod.brms.bites,~ bite_on|habitat + site, type="response")
+pairs(emmeans::emmeans(mod.brms.bites,~ bite_on, type="response"), reverse = T)
 emmeans::emmeans(mod.brms.bites,~ habitat, type="response")
 emmeans::emmeans(mod.brms.bites,~ site, type="response")
 ```
@@ -688,7 +708,7 @@ pPO.1 = ggplot(pPOa, aes(y = (.value), x=habitat, fill = bite_on)) +
   theme(legend.position = "none",axis.title.x = element_blank(),
         legend.margin=margin(-13, 0, 0, 0)) +
   facet_wrap(~species, scales = "free_y", ncol = 1) +
-  ylab(expression(Number~of~bites~hr^{"-1"}~"\U00B1"~"95% credible intervals")) 
+  ylab(expression(Number~of~bites~hr^{"-1"}~"+/-"~"95% credible intervals")) 
   # ylab("Bites hr^-1")   
 
 pPO.2 = ggplot(pPOb, aes(x = .value, y = habitat)) +
@@ -712,8 +732,14 @@ g = egg::ggarrange(pES.1, pES.2,pPO.1, pPO.2,
                 pCS.1, pCS.2,ncol=2,nrow = 3, widths = c(1.4,1),heights = c(1.5, 1.5,1))
 
 ggsave("Figures/GrazingSpecies.png", plot = g, device = "png", 
-       width = 6, height = 7, dpi=300)
-
+       width = 6, height = 8, dpi=300)
+ggsave("Figures/GrazingSpecies.tiff", plot = g, device = "tiff", 
+       width = 6, height = 8, dpi=300)
+ggsave("Figures/GrazingSpecies.svg", plot = g, device = "svg", 
+       width = 6, height = 8, dpi=300)
+svg("Figures/GrazingSpecies.svg")
+print(g)     # Plot 1 --> in the first page of PDF     # Plot 2 ---> in the second page of the PDF
+dev.off()
 CS.Sum = dat.bites.spmodCS %>%
   modelr::data_grid(bite_on, species, site) %>%
   add_fitted_draws(mod.brms.bitesspCS, re_formula = NULL,  n=1000) %>% mutate(.value = .value/3)%>%
@@ -727,7 +753,8 @@ dat.benth = dat.benth %>%
   mutate(BenthosSum = ifelse(Benthos %in% c("Hard Coral", "Porites", "Juvenile coral"), "Hard Coral",
                       ifelse(Benthos %in% c("Turbinaria", "Halimeda", "Dictyosphaeria"), "Macroalgae",
                       ifelse(Benthos %in% c("Sand", "Rubble"), "Sand/Rubble",
-                      ifelse(Benthos == "CCA", "CCA", ifelse(Benthos=="Turf", "Turf", "Other"))))))
+                      ifelse(Benthos == "CCA", "CCA", ifelse(Benthos=="Turf", "Turf", "Other"))))),
+         Site= recode(Site, Bird = "Site 1", South= "Site 2"))
 dat.benthsum = dat.benth %>% 
   group_by(Habitat, Site, BenthosSum) %>% summarise(Count = n()) %>%
   mutate(Perc = Count/300) #%>%
@@ -756,19 +783,22 @@ pBenth = ggplot(dat.benthsum2, aes(x=Site, y=mn)) +
   theme_bw() + ylab("Mean % benthic cover +/- SE") + theme(axis.title.x = element_blank()) +
   labs(shape="Benthos")
 ggsave("Figures/Benthos.png", plot = p, device = "png", 
-       width = 6, height = 4, dpi=300)
+       width = 6, height = 6, dpi=300)
 ```
 
 ```{r Fish Surveys}
 dat.fish = readxl::read_xlsx("Data/Oct 17 fish surveys.xlsx", sheet=4) %>%
-  mutate(Species = `Fish species`) %>%
+  mutate(Species = `Fish species`,
+         Count = Count/5,
+         Site= recode(Site, Bird = "Site 1", South= "Site 2")) %>%
   separate(`Fish species`, into = c("Genus", "Species2"), sep = " ") 
 
 dat.fish2 = readxl::read_xlsx("Data/Oct 17 fish surveys.xlsx", sheet="BenthicFish") %>%
-  mutate(Species = `Fish species`) %>%
+  mutate(Species = `Fish species`,
+         Site= recode(Site, Bird = "Site 1", South= "Site 2")) %>%
   separate(`Fish species`, into = c("Genus", "Species2"), sep = " ") %>%
   filter(!`Include (Y/N)` == "n") %>%
-  mutate(Count = Count*2.5) %>% select(c(1:3, 6,8,10))
+  mutate(Count = Count/2) %>% select(c(1:3, 6,8,10))
 colnames(dat.fish2)[4] = "Genus"
 
 dat.fishsum = dat.fish %>% 
@@ -832,7 +862,7 @@ pFish2 = ggplot(dat.fishgen2, aes(x=Site, y=mn)) +
   facet_grid(~Habitat) +
   scale_colour_viridis_d() +
   # scale_y_sqrt(breaks = c(1,10,50,100,200)) +
-  theme_bw() + ylab("Mean Abundance per Transect +/- SE")
+  theme_bw() + ylab("Mean Abundance per 50m2 +/- SE")
 g = egg::ggarrange(pBenth, pFish, ncol = 1, heights = c(1,1.4))
 ggsave("Figures/BenthosFish.png", plot = g, device = "png", 
        width = 7, height = 9, dpi=300)
@@ -844,9 +874,13 @@ pFish3 = ggplot(dat.fishgen2, aes(x=Site, y=mn, shape=Family)) +
   # scale_y_sqrt() +
   scale_y_continuous(trans = scales::log_trans(base = 10)) +
   # scale_y_sqrt(breaks = c(1,10,25,50,100,200)) +
-  theme_bw() + ylab("Mean Abundance per Transect +/- SE")
+  theme_bw() + ylab(expression("Mean Abundance per 50"~m^{"2"}~"+/- SE"))
 
-g1 = egg::ggarrange(pBenth, pFish3, ncol = 1, heights = c(1,1))
+g1 = egg::ggarrange(pBenth, pFish3, ncol = 1, heights = c(1,1.4))
 ggsave("Figures/BenthosFish2.png", plot = g1, device = "png", 
-       width = 7, height = 7, dpi=300)
+       width = 7, height = 9, dpi=300)
+ggsave("Figures/BenthosFish2.tiff", plot = g1, device = "tiff", 
+       width = 7, height = 9, dpi=300)
+ggsave("Figures/BenthosFish2.svg", plot = g1, device = "svg", 
+       width = 7, height = 9, dpi=300)
 ```
