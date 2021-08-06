@@ -876,11 +876,60 @@ pFish3 = ggplot(dat.fishgen2, aes(x=Site, y=mn, shape=Family)) +
   # scale_y_sqrt(breaks = c(1,10,25,50,100,200)) +
   theme_bw() + ylab(expression("Mean Abundance per 50"~m^{"2"}~"+/- SE"))
 
-g1 = egg::ggarrange(pBenth, pFish3, ncol = 1, heights = c(1,1.4))
+# Fish abundance by Family ----
+dat.fishfam = dat.fish %>% select(c(1:4,7:8)) %>% rbind(dat.fish2) %>%
+  filter(!Genus %in% c("juv.", "Juv.", "Dark")) %>%
+  mutate(Family = ifelse(Genus %in% c("Acanthurus", "Ctenochaetus", "Naso", "Zebrasoma"), "Acanthuridae",
+                      ifelse(Genus %in% c("Chlorurus", "Scarus"), "Labridae: Scarini",
+                      ifelse(Genus %in% c("Ecsenius stictus", "other Blenniidae"), "Blenniidae",
+                      ifelse(Genus %in% c("Pomacentrus spp", "other Pomacentridae"), "Pomacentridae", "Siganidae"))))) %>%
+  group_by(Habitat, Site,`Transect #` ,Family) %>% summarise(Count = sum(Count)) %>%
+  # mutate(Perc = Count/100) %>% select(-Count) %>%
+  spread(Family,Count) %>%
+  gather(Family,Count, 4:8,na.rm = F) %>% mutate(Count = replace_na(Count, 0)) %>%
+  group_by(Habitat, Site, Family) %>% 
+  summarise(mn = mean(Count),
+            # no=n(Count>0),
+            se = sd(Count)/sqrt(n()))  
+
+
+famorder = dat.fishfam %>% ungroup %>% select(Family) %>% distinct() %>% arrange(Family) %>% pull(Family)
+dat.fishfam$Family = factor(dat.fishfam$Family, levels = famorder)
+
+# plot
+pFishFam = ggplot(dat.fishfam, aes(x=Site, y=mn, shape=Family)) +
+  geom_pointrange(aes(colour=Family, shape=Family,  ymin=mn-se, ymax=mn+se), position = position_dodge(width=0.9)) +
+  facet_grid(~Habitat, scales = "free_y") + 
+  scale_colour_viridis_d() +
+  # scale_y_sqrt() +
+  # scale_y_continuous(trans = scales::log_trans(base = 10)) +
+  # scale_y_sqrt(breaks = c(1,10,25,50,100,200)) +
+  theme_bw() + ylab(expression("Mean Abundance per 50"~m^{"2"}~"+/- SE"))
+
+pFishFamlog = ggplot(dat.fishfam, aes(x=Site, y=mn, shape=Family)) +
+  geom_pointrange(aes(colour=Family, shape=Family,  ymin=mn-se, ymax=mn+se), position = position_dodge(width=0.9)) +
+  facet_grid(~Habitat, scales = "free_y") + 
+  scale_colour_viridis_d() +
+  # scale_y_sqrt() +
+  scale_y_continuous(trans = scales::log_trans(base = 10)) +
+  # scale_y_sqrt(breaks = c(1,10,25,50,100,200)) +
+  theme_bw() + ylab(expression("Mean Abundance per 50"~m^{"2"}~"+/- SE"))
+
+
+# Write plots ----
+g1 = egg::ggarrange(pBenth, pFishFam, ncol = 1, heights = c(1,1.4))
 ggsave("Figures/BenthosFish2.png", plot = g1, device = "png", 
        width = 7, height = 9, dpi=300)
 ggsave("Figures/BenthosFish2.tiff", plot = g1, device = "tiff", 
        width = 7, height = 9, dpi=300)
 ggsave("Figures/BenthosFish2.svg", plot = g1, device = "svg", 
+       width = 7, height = 9, dpi=300)
+
+g1 = egg::ggarrange(pBenth, pFishFamlog, ncol = 1, heights = c(1,1.4))
+ggsave("Figures/BenthosFishlog.png", plot = g1, device = "png", 
+       width = 7, height = 9, dpi=300)
+ggsave("Figures/BenthosFishlog.tiff", plot = g1, device = "tiff", 
+       width = 7, height = 9, dpi=300)
+ggsave("Figures/BenthosFishlog.svg", plot = g1, device = "svg", 
        width = 7, height = 9, dpi=300)
 ```
