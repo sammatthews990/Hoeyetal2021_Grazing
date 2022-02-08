@@ -1185,18 +1185,23 @@ ggsave("Figures/Grazers.svg", plot = g, device = "svg",
 #Start HEre for remaining species !!!!
 
 # Ecsenius stictus---
-pESa = mod.brms.ES %>% emmeans(~ bite_on|habitat, type="response") %>%
+pESa = mod.brms.ES.2 %>% emmeans(~ bite_on|habitat, type="response") %>%
   gather_emmeans_draws(type="response") %>%
   mutate(.value = exp(.value))
 
 pESb = pESa %>% compare_levels(.value, by = bite_on) %>%
   mutate(species = "Ecsenius stictus")
 
-pES.1 = ggplot(pESa, aes(y = (.value), x=habitat, fill = bite_on)) +
+pESc = mod.brms.ES.2 %>% emmeans(~ bite_on|habitat, type="response") %>%
+  contrast(method = "pairwise") %>%
+  gather_emmeans_draws() 
+  
+
+pESa = ggplot(pESa, aes(y = (.value), x=habitat, fill = bite_on)) +
   theme_bw(base_size = 12) +
   stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95)) +
   coord_cartesian(ylim= c(0,350)) +
-  geom_point(data=dat.bites.spmodES2, aes(y=(TotalBites/3), x=habitat, colour=bite_on), 
+  geom_point(data=dat.bites.spmodES, aes(y=(TotalBites/3), x=habitat, colour=bite_on), 
              position = position_jitterdodge(jitter.width = 0.1),pch=1) +
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
   # stat_gradientinterval(position = "dodge") +
@@ -1210,7 +1215,7 @@ pES.1 = ggplot(pESa, aes(y = (.value), x=habitat, fill = bite_on)) +
   facet_wrap(~species, scales = "free_y", ncol = 1) 
   # ylab("Bites hr^-1")   
 
-pES.2 = ggplot(pESb, aes(x = .value, y = habitat)) +
+pESb = ggplot(pESb, aes(x = .value, y = habitat)) +
   # stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),side = "bottom") +
   # stat_interval(alpha=0.7,.width = c(.50, .80, .95, .99)) +
   # stat_interval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),side = "bottom") +
@@ -1223,29 +1228,31 @@ pES.2 = ggplot(pESb, aes(x = .value, y = habitat)) +
         axis.title.x = element_blank()) +
   facet_grid(habitat~species, scales = "free")
 
-egg::ggarrange(pES.1, pES.2,ncol=2, widths = c(1.2,1))
+egg::ggarrange(pESa, pESb,ncol=2, widths = c(1.2,1))
 
 # POmacentrus---
-pPO1 = dat.bites.spmodPO %>%
-  modelr::data_grid(bite_on, species,habitat, site) %>%
-  add_fitted_draws(mod.brms.bitesspPO, re_formula = NULL,  n=1000) %>%
-  mutate(.value = .value/3)
-pPO2 = dat.bites.spmodPO %>%
-  modelr::data_grid(bite_on,species, habitat, site) %>%
-  add_fitted_draws(mod.brms.bitesspPO, re_formula = NULL, n=100)  %>%
-  compare_levels(.value, by = bite_on) %>%
-  mutate(.value = .value/3)
-pPOa = mod.brms.bitesspPO.2 %>% emmeans(~ bite_on|habitat, type="response") %>%
+# pPO1 = dat.bites.spmodPO %>%
+#   modelr::data_grid(bite_on, species,habitat, site) %>%
+#   add_fitted_draws(mod.brms.bitesspPO, re_formula = NULL,  n=1000) %>%
+#   mutate(.value = .value/3)
+# pPO2 = dat.bites.spmodPO %>%
+#   modelr::data_grid(bite_on,species, habitat, site) %>%
+#   add_fitted_draws(mod.brms.bitesspPO, re_formula = NULL, n=100)  %>%
+#   compare_levels(.value, by = bite_on) %>%
+#   mutate(.value = .value/3)
+
+pPOa = mod.brms.PO.2 %>% emmeans(~ bite_on|habitat, type="response") %>%
   gather_emmeans_draws(type="response") %>%
   mutate(.value = exp(.value))
 
 pPOb = pPOa %>% compare_levels(.value, by = bite_on) %>%
   mutate(species = "Pomacentrus")
-pPO.1 = ggplot(pPOa, aes(y = (.value), x=habitat, fill = bite_on)) +
+
+pPOa = ggplot(pPOa, aes(y = (.value), x=habitat, fill = bite_on)) +
   theme_bw(base_size = 12) +
   stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95)) +
-  coord_cartesian(ylim= c(0,2)) +
-  geom_point(data=dat.bites.spmodPO2, aes(y=(TotalBites/3), x=habitat, colour=bite_on), 
+  coord_cartesian(ylim= c(0,10)) +
+  geom_point(data=dat.bites.spmodPO, aes(y=(TotalBites/3), x=habitat, colour=bite_on), 
              position = position_jitterdodge(jitter.width = 0.1),pch=1) +
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
   # stat_gradientinterval(position = "dodge") +
@@ -1261,7 +1268,7 @@ pPO.1 = ggplot(pPOa, aes(y = (.value), x=habitat, fill = bite_on)) +
   ylab(expression(Number~of~bites~hr^{"-1"}~"+/-"~"95% credible intervals")) 
   # ylab("Bites hr^-1")   
 
-pPO.2 = ggplot(pPOb, aes(x = .value, y = habitat)) +
+pPOb = ggplot(pPOb, aes(x = .value, y = habitat)) +
   # stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),side = "bottom") +
   # stat_interval(alpha=0.7,.width = c(.50, .80, .95, .99)) +
   # stat_interval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),side = "bottom") +
@@ -1277,13 +1284,63 @@ pPO.2 = ggplot(pPOb, aes(x = .value, y = habitat)) +
   # geom_vline(xintercept=0, linetype="dashed") +
   # facet_wrap(~habitat, ncol = 1) +
   # xlab("Difference in Bites (Turf-Propagules)")
-egg::ggarrange(pCS.1, pCS.2,pSC.1, pSC.2, pAC.1,pAC.2,ncol=2, widths = c(1.2,1))
-g = egg::ggarrange(pES.1, pES.2,pPO.1, pPO.2,
-                pCS.1, pCS.2,ncol=2,nrow = 3, widths = c(1.4,1),heights = c(1.5, 1.5,1))
+egg::ggarrange(pPOa, pPOb, ncol=2, widths = c(1.2,1))
+
+#Ctenochaetus Striatus
+pCSa = mod.brms.CS.2 %>% emmeans(~ bite_on, type="response") %>%
+  gather_emmeans_draws(type="response") %>%
+  mutate(.value = exp(.value), habitat="Crest")
+
+pCSb = pCSa %>% compare_levels(.value, by = bite_on) %>%
+  mutate(species = "Ctenochaetus striatus", habitat="Crest")
+
+pCSa = ggplot(pCSa, aes(y = (.value), x=habitat, fill = bite_on)) +
+  theme_bw(base_size = 12) +
+  stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95)) +
+  coord_cartesian(ylim= c(0,10)) +
+  geom_point(data=dat.bites.spmodCS, aes(y=(TotalBites), x=habitat, colour=bite_on), 
+             position = position_jitterdodge(jitter.width = 0.1),pch=1) +
+  stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
+  # stat_gradientinterval(position = "dodge") +
+  # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
+   scale_fill_manual(values=c("seagreen", "orange"),
+                    labels = c("Algal turf with \nSargassum propagules", "Algal turf without \nSargassum propagules")) +
+  scale_colour_manual(values=c("seagreen", "orange"),
+                      labels = c("Algal turf with \nSargassum propagules", "Algal turf without \nSargassum propagules")) +
+  # scale_fill_manual(values=c("seagreen", "orange")) +
+  # scale_colour_manual(values=c("seagreen", "orange")) +
+  # scale_fill_viridis_d() +
+  # scale_y_log10() +
+  # scale_colour_viridis_d() +
+  theme(legend.position = "bottom",legend.title = element_blank(),
+        axis.title.x = element_blank(),axis.title.y = element_blank(),
+        legend.margin=margin(-13, 0, 0, 0)) +
+  facet_wrap(~species, scales = "free_y", ncol = 1)
+
+pCSb = ggplot(pCSb, aes(x = .value, y = habitat)) +
+  # stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),side = "bottom") +
+  # stat_interval(alpha=0.7,.width = c(.50, .80, .95, .99)) +
+  # stat_interval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),side = "bottom") +
+  stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
+  theme_bw(base_size = 12) + 
+  geom_vline(xintercept=0, linetype="dashed") +
+  # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
+  # scale_x_log10() +
+  theme(legend.position = "right", axis.title.y = element_blank(),axis.text.y = element_blank()) +
+  facet_wrap(~species, scales="free", ncol=1) + 
+  xlab("Difference in Bites \n(Turf-Propagules)")
+  # coord_cartesian(xlim = c(-20,500)) +
+  # geom_vline(xintercept=0, linetype="dashed") +
+  # facet_wrap(~habitat, ncol = 1) +
+  
+egg::ggarrange(pCSa, pCSb, ncol=2, widths = c(1.2,1))
+
+g = egg::ggarrange(pESa, pESb,pPOa, pPOb,
+                pCSa, pCSb,ncol=2,nrow = 3, widths = c(1.4,1),heights = c(1.5, 1.5,1))
 
 ggsave("Figures/GrazingSpecies.png", plot = g, device = "png", 
        width = 6, height = 8, dpi=300)
-ggsave("Figures/GrazingSpecies.tiff", plot = g, device = "tiff", 
+ggsave("Figures/GrazingSpecies.pdf", plot = g, device = cairo_pdf,
        width = 6, height = 8, dpi=300)
 ggsave("Figures/GrazingSpecies.svg", plot = g, device = "svg", 
        width = 6, height = 8, dpi=300)
