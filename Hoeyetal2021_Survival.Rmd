@@ -28,6 +28,27 @@ mod.brms.surv = brm(formula =proportion.remaining ~ Treatment*Habitat + Site,
                     # control = list(adapt_delta = 0.995,
                     #                max_treedepth=15)
                     )
+m2priors = get_prior(formula =proportion.remaining ~ Treatment*Habitat + (1|Site), 
+                    data=dat.prop, family="gamma")
+mod.brms.surv2 = brm(formula =proportion.remaining ~ Treatment*Habitat + (1|Site), 
+                    data=dat.prop, family="gamma", sample_prior = T,
+                    prior = c(prior(normal(0, 5), class = "Intercept"),
+                              prior(normal(0, 5), class = "b"), 
+                              prior(gamma(0.1, 0.1), class = "shape")),
+                    warmup = 400, iter = 10000, chains = 3, cores = 3, thin=2
+                    # control = list(adapt_delta = 0.995,
+                    #                max_treedepth=15)
+                    )
+
+m3priors = get_prior(formula =proportion.remaining ~ Treatment*Habitat, 
+                    data=dat.prop, family="gamma")
+mod.brms.surv3 = brm(formula =proportion.remaining ~ Treatment*Habitat, 
+                    data=dat.prop, family="gamma", sample_prior = T,
+                    prior = m3priors,
+                    warmup = 400, iter = 10000, chains = 3, cores = 3, thin=2
+                    # control = list(adapt_delta = 0.995,
+                    #                max_treedepth=15)
+                    )
 # perf.brms1 = performance::check_model(mod.brms.surv)
 summary(mod.brms.surv)
 p1 = dat.prop %>%
@@ -70,9 +91,7 @@ m1.3priors = get_prior(formula =proportion.remaining ~ Treatment*Habitat + (1/Si
                     data=dat.prop, family="gamma")
 mod.brms.surv2 = brm(formula =proportion.remaining ~ Treatment*Habitat, 
                     data=dat.prop, family="gamma", sample_prior = T,
-                    prior = c(prior(normal(0, 5), class = "Intercept"),
-                              prior(normal(0, 5), class = "b"), 
-                              prior(gamma(0.1, 0.1), class = "shape")),
+                    prior = m1.2priors,
                     warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2
                     # control = list(adapt_delta = 0.995,
                     #                max_treedepth=15)
@@ -106,7 +125,7 @@ p1.2 = ggplot(p1.2, aes(y = .value, x = Treatment, fill = Treatment)) +
   theme(legend.position = "bottom",axis.title.x = element_blank(),
         legend.margin=margin(-10, 0, 0, 0)) +
   facet_grid(~Habitat, scales = "free_x") +
-  ylab("Proportion of progagules remaining")   
+  ylab("Proportional change in propagules")   
 
 p2.2 = ggplot(p2.2, aes(x = -.value, y = Habitat)) +
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7)) + 
@@ -116,7 +135,7 @@ p2.2 = ggplot(p2.2, aes(x = -.value, y = Habitat)) +
   theme(legend.position = "right", axis.title.y = element_blank(),
         legend.margin=margin(-5, 0, 0, 0)) +
   # facet_wrap(~Habitat, ncol = 1, scales = "free_y") +
-  xlab("Difference in proportion of propagules \nremaining (Caged-Exposed)") 
+  xlab("Difference in proportional change in \npropagules (Caged-Exposed)") 
 g=egg::ggarrange(p1.2, p2.2, ncol=2, widths = c(1.4,1))
 ggsave("Figures/PropSurvivalPooled.png", plot = g, device = "png", 
        width = 8, height = 5, dpi=300)
@@ -125,7 +144,7 @@ ggsave("Figures/PropSurvivalPooled.pdf", plot = g, device = cairo_pdf,
 ggsave("Figures/PropSurvivalPooled.svg", plot = g, device = "svg", 
        width = 8, height = 5, dpi=300)
 emmeans::emmeans(mod.brms.surv2,~ Treatment*Habitat, type="response")
-
+pairs(emmeans::emmeans(mod.brms.surv2,~ Treatment*Habitat, type="response"))
 #Random Factor Sites----
 summary(mod.brms.surv2)
 p1.3 = dat.prop %>%
@@ -217,12 +236,26 @@ mod.brms.bites3 = brm(formula =TotalBites ~ bite_on*habitat +site*habitat + (1|D
                     #                max_treedepth=15)
                     )
 
+mod.brms.bites4 = brm(formula =TotalBites ~ bite_on*habitat + (1|Date), 
+                    data=dat.bites.sum, family="negbinomial", sample_prior = T,
+                    # prior = m1priors,
+                    prior = c(prior(normal(0, 5), class = "Intercept"),
+                              prior(normal(0, 5), class = "b"),
+                              prior(student_t(3, 0, 2.5), class = "sd"),
+                              prior(gamma(0.1, 0.1), class = "shape")),
+                    warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
+                    control = list(adapt_delta = 0.98)
+                    #                max_treedepth=15)
+                    )
+
 
 
 
 mod.brm1 = add_criterion(mod.brms.bites,  "loo")
 mod.brm3 = add_criterion(mod.brms.bites3,  "loo")
-loo::loo_compare(mod.brm1,  mod.brm3, criterion = "loo")
+mod.brm4 = add_criterion(mod.brms.bites4,  "loo")
+
+loo::loo_compare(mod.brm1,  mod.brm3,mod.brm4, criterion = "loo")
 waic(mod.brm1, mod.brm3)
 emmeans::emmeans(mod.brms.bites,~ bite_on|habitat + site, type="response")
 emmeans::emmeans(mod.brms.bites3,~ bite_on|habitat + site, type="response")
@@ -233,12 +266,23 @@ p3a = dat.bites.sum %>%
   modelr::data_grid(bite_on, habitat, site) %>%
   add_fitted_draws(mod.brms.bites3, re_formula = NULL,  n=1000)
 
-p3b = dat.bites.sum %>% 
+p3b = dat.bites.sum %>% as.data.frame() %>%
   modelr::data_grid(bite_on, habitat, site) %>% 
   add_fitted_draws(mod.brms.bites3, re_formula = NULL,  n=1000) %>% 
   mutate(habitat = factor(ifelse(habitat == "Reef crest", "Crest", "Flat"), 
                            levels = c("Crest", "Flat")))
-  
+
+# p3c = dat.bites.sum %>% as.data.frame() %>%
+#   modelr::data_grid(bite_on, habitat, Date) %>% 
+#   add_epred_draws(mod.brms.bites4, re_formula = NULL,  n=1000) %>% 
+#   mutate(habitat = factor(ifelse(habitat == "Reef crest", "Crest", "Flat"), 
+#                            levels = c("Crest", "Flat")))
+    
+p3c = mod.brms.bites4 %>% 
+  emmeans(~ bite_on | habitat, epred = TRUE, re_formula = NA) %>% 
+  gather_emmeans_draws(n=100) %>%
+  mutate(habitat = factor(ifelse(habitat == "Reef crest", "Crest", "Flat"), 
+                           levels = c("Crest", "Flat")))
  
 
 p4 = dat.bites.sum %>%
@@ -300,6 +344,8 @@ p3.1b = ggplot(p3b, aes(y = .value, x = site, fill = bite_on)) +
   theme(legend.position = "bottom",axis.title.x = element_blank(), legend.margin=margin(-10, 0, 0, 0),
         axis.title.y = element_text(family="sans"),legend.title = element_blank()) +facet_grid(~habitat) +
   ylab(expression(Number~of~bites~hr^{"-1"}~"+/-"~"95% credible intervals"))
+
+
 
 p4.1  = ggplot(p4b, aes(x = .value/3, y = site)) +
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),
@@ -365,6 +411,17 @@ ggplot(dat.bites.sum, aes(x=site, y=TotalBites, fill = bite_on)) +
 
 
 mod.brms.bites.2 = brm(formula =TotalBites ~ bite_on*habitat  + (1|id/Date), 
+                    data=dat.bites.sum, family="negbinomial", sample_prior = T,
+                    # prior = m1priors,
+                    prior = c(prior(normal(0, 5), class = "Intercept"),
+                              prior(normal(0, 5), class = "b"),
+                              prior(student_t(3, 0, 2.5), class = "sd"),
+                              prior(gamma(0.1, 0.1), class = "shape")),
+                    warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
+                    control = list(adapt_delta = 0.995)
+                    #                max_treedepth=15)
+                    )
+mod.brms.bites.2.1 = brm(formula =TotalBites ~ bite_on*habitat  + (1|Date) + (1|id), 
                     data=dat.bites.sum, family="negbinomial", sample_prior = T,
                     # prior = m1priors,
                     prior = c(prior(normal(0, 5), class = "Intercept"),
@@ -470,13 +527,14 @@ mod.brms.bites.7ZI = brm(formula =TotalBites ~ bite_on*habitat +site*habitat + (
 
 
 mod.brm.2 = add_criterion(mod.brms.bites.2,  "loo")
+mod.brm.2.1 = add_criterion(mod.brms.bites.2.1,  "loo")
 mod.brm.3 = add_criterion(mod.brms.bites.3,  "loo")
 mod.brm.4 = add_criterion(mod.brms.bites.4,  "loo")
 mod.brm.5 = add_criterion(mod.brms.bites.5,  "loo")
 mod.brm.6 = add_criterion(mod.brms.bites.6,  "loo")
 mod.brm.7 = add_criterion(mod.brms.bites.7,  "loo")
 mod.brm.8 = add_criterion(mod.brms.bites.8,  "loo")
-loo::loo_compare(mod.brm.2,  mod.brm.3,mod.brm.4, mod.brm.5, mod.brm.6,mod.brm.7,mod.brm.8, criterion = "loo")
+loo::loo_compare(mod.brm.2,mod.brm.2.1,  mod.brm.3,mod.brm.4, mod.brm.5, mod.brm.6, criterion = "loo")
 
 emmeans::emmeans(mod.brms.bites.2,~ bite_on|habitat, type="response")
 mod_embites2 = emmeans::emmeans(mod.brms.bites.2,~ bite_on|habitat, type="response")
@@ -538,7 +596,8 @@ p3.1b = ggplot(p3b, aes(y = .value, x = bite_on, fill = bite_on)) +
   coord_cartesian(ylim= c(0,400)) +
   geom_point(data=dat.bites.sum, aes(y=TotalBites, x=bite_on, colour=bite_on), 
              position = position_jitterdodge(jitter.width = 0.1),pch=1) +
-  stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),point_interval=median_hdi) +
+  stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95),point_interval=median_hdi,
+           normalize = "panels") +
   scale_fill_manual(values=c("seagreen", "orange"),
                     labels = c("Algal turf with \nSargassum propagules", 
                                "Algal turf without \nSargassum propagules")) +
@@ -563,14 +622,15 @@ p4.1  = ggplot(p4b, aes(x = .value, y = habitat)) +
 g = egg::ggarrange(p3.1b, p4.1, ncol=2, widths = c(1.4,1))
 ggsave("Figures/GrazingPooled.png", plot = g, device = "png", 
        width = 6, height = 5, dpi=300)
-ggsave("Figures/GrazingPooled.tiff", plot = g, device = "tiff", 
+ggsave("Figures/GrazingPooled.pdf", plot = g, device = "pdf", 
        width = 6, height = 5, dpi=300)
 ggsave("Figures/GrazingPooled.svg", plot = g, device = "svg", 
        width = 6, height = 5, dpi=300)
-emmeans::emmeans(mod.brms.bites,~ bite_on|habitat + site, type="response")
-pairs(emmeans::emmeans(mod.brms.bites,~ bite_on, type="response"), reverse = T)
-emmeans::emmeans(mod.brms.bites,~ habitat, type="response")
-emmeans::emmeans(mod.brms.bites,~ site, type="response")
+emmeans::emmeans(mod.brms.bites.2,~ bite_on|habitat, type="response")
+pairs(emmeans::emmeans(mod.brms.bites.2,~ bite_on, type="response"), reverse = T)
+pairs(emmeans::emmeans(mod.brms.bites.2,~ bite_on|habitat, type="response"), reverse = T)
+emmeans::emmeans(mod.brms.bites.2,~ habitat, type="response")
+pairs(emmeans::emmeans(mod.brms.bites.2,~ habitat, type="response"))
 ```
 
 ```{r Part 3 - Species Specific Grazing OLD}
@@ -986,7 +1046,8 @@ egg::ggarrange(pCS.1, pCS.2,pSC.1, pSC.2, pAC.1,pAC.2,ncol=2, widths = c(1.2,1))
 #Non-Grazers
 dat.bites.spmodCS =  dat.bites.spmod %>% 
   dplyr::filter(species %in% c("Ctenochaetus striatus", 'Ctenochaetis striatus')) %>% 
-  mutate(TotalBites = round(TotalBites/3,0))
+  mutate(TotalBites = round(TotalBites/3,0),
+         species = "Ctenochaetus striatus")
 dat.bites.spmodCS2 =  dat.bites.spmodCS %>% full_join(dplyr::select(dat.bites.sum, -TotalBites), 
                                                  by = c("Date", "id", "habitat", "bite_on")) %>%
   mutate(species  = "Ctenochaetus striatus", 
@@ -1021,39 +1082,75 @@ dat.bites.graz = dat.bites %>%
   summarise(TotalBites = sum(TotalBites, na.rm =T)) %>% 
   mutate(TotalBites = round(TotalBites/3,0))
 
+# Pooled Grazers   
+dat.bites.scarus = dat.bites %>% 
+  # filter(!is.na(bites)) %>%
+  separate(species, into = c("Genus", "Species"), sep = " ") %>%
+  group_by(Date, id, habitat, site, Genus, bite_on) %>%
+  summarise(TotalBites = sum(bites, na.rm =T))%>%
+  mutate(id = factor(id), bite_on = factor(bite_on)) %>%
+  spread(bite_on,TotalBites) %>% select(-V3) %>%
+  gather(bite_on, TotalBites, 6:7, na.rm = F) %>% arrange(Date, id, habitat, site, Genus) %>%
+  dplyr::mutate(TotalBites = replace_na(TotalBites, 0)) %>%
+  mutate(Grazer = ifelse(Genus %in% c("Scarus"), "Grazer", NA)) %>%
+  filter(Grazer =="Grazer") %>%
+  group_by(Date, id, habitat, site, bite_on) %>%
+  summarise(TotalBites = sum(TotalBites, na.rm =T)) %>% 
+  mutate(TotalBites = round(TotalBites/3,0))
+
 dat.bites.graz2 =  dat.bites.graz %>% full_join(dplyr::select(dat.bites.sum, -TotalBites), 
                                                  by = c("Date", "id", "habitat", "bite_on")) %>%
   mutate(species = "Grazers", 
          TotalBites = replace_na(TotalBites, replace = 0)) %>%
   filter(habitat == "Crest")
-
+dat.bites.scarus2 =  dat.bites.scarus %>% full_join(dplyr::select(dat.bites.sum, -TotalBites), 
+                                                 by = c("Date", "id", "habitat", "bite_on")) %>%
+  mutate(species = "Grazers", 
+         TotalBites = replace_na(TotalBites, replace = 0)) %>%
+  filter(habitat == "Crest")
 # Fit Models
+mpriors = brms::get_prior(formula =TotalBites ~ bite_on*habitat + (1|id/Date), 
+                    data=dat.bites.spmodPO2, family="negbinomial")
 mod.brms.PO = brm(formula =TotalBites ~ bite_on*habitat + (1|id/Date), 
                     data=dat.bites.spmodPO2, family="negbinomial", sample_prior = T,
-                    prior = c(prior(normal(0, 5), class = "Intercept"),
-                              prior(normal(0, 5), class = "b"),
-                              prior(normal(0,5), class = "sd"), 
-                              prior(gamma(0.1, 0.1), class = "shape")),
+                    prior = mpriors,
+                    # prior = c(prior(normal(0, 5), class = "Intercept"),
+                    #           prior(normal(0, 5), class = "b"),
+                    #           prior(normal(0,5), class = "sd"), 
+                    #           prior(gamma(0.1, 0.1), class = "shape")),
                     warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
                     control = list(adapt_delta = 0.98))
-mod.brms.CS = brm(formula =TotalBites ~ bite_on+ (1|id/Date), 
+mpriors = brms::get_prior(formula =TotalBites ~ bite_on + (1|id/Date), 
+                    data=dat.bites.spmodCS2, family="negbinomial")
+mod.brms.CS = brm(formula =TotalBites ~ bite_on+  (1|id/Date), 
                     data=dat.bites.spmodCS2, family="negbinomial", sample_prior = T,
-                    prior = c(prior(normal(0, 5), class = "Intercept"),
-                              prior(normal(0, 5), class = "b"),
-                              prior(normal(0,5), class = "sd"), 
-                              prior(gamma(0.1, 0.1), class = "shape")),
+                  prior = mpriors,
+                    # prior = c(prior(normal(0, 5), class = "Intercept"),
+                    #           prior(normal(0, 5), class = "b"),
+                    #           prior(normal(0,5), class = "sd"), 
+                    #           prior(gamma(0.1, 0.1), class = "shape")),
                     warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
                     control = list(adapt_delta = 0.98))
-mod.brms.ES = brm(formula =TotalBites ~ bite_on*habitat + (1|id/Date), 
+mpriors = brms::get_prior(formula =TotalBites ~ bite_on*habitat + (1|id/Date), 
+                    data=dat.bites.spmodES2, family="negbinomial")
+mod.brms.ES = brm(formula =TotalBites ~ bite_on*habitat + + (1|id/Date), 
                     data=dat.bites.spmodES2, family="negbinomial", sample_prior = T,
-                    prior = c(prior(normal(0, 5), class = "Intercept"),
-                              prior(normal(0, 5), class = "b"),
-                              prior(normal(0,5), class = "sd"), 
-                              prior(gamma(0.1, 0.1), class = "shape")),
+                    prior =mpriors,
+                    # prior = c(prior(normal(0, 5), class = "Intercept"),
+                    #           prior(normal(0, 5), class = "b"),
+                    #           prior(normal(0,5), class = "sd"), 
+                    #           prior(gamma(0.1, 0.1), class = "shape")),
                     warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
                     control = list(adapt_delta = 0.98))
-mod.brms.GZ = brm(formula =TotalBites ~ bite_on+ (1|id/Date), 
+mpriors = brms::get_prior(formula =TotalBites ~ bite_on + (1|id/Date), 
+                    data=dat.bites.graz2, family="negbinomial")
+mod.brms.GZ = brm(formula =TotalBites ~ bite_on+  (1|id/Date), 
                     data=dat.bites.graz2, family="negbinomial", sample_prior = T,
+                    prior = mpriors,
+                    warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
+                    control = list(adapt_delta = 0.98))
+mod.brms.SC = brm(formula =TotalBites ~ bite_on+ + (1|id/Date), 
+                    data=dat.bites.scarus2, family="negbinomial", sample_prior = T,
                     prior = c(prior(normal(0, 5), class = "Intercept"),
                               prior(normal(0, 5), class = "b"),
                               prior(normal(0,5), class = "sd"), 
@@ -1092,40 +1189,56 @@ pairs(mod_emGZ, reverse = T)
 #USE MODEL MOD.BRMS.gz
 
 # Fit without adding zeros back in
-mod.brms.PO.2 = brm(formula =TotalBites ~ bite_on*habitat + (1|id/Date), 
+mpriors = brms::get_prior(formula =TotalBites ~ bite_on*habitat  + (1|id/Date), 
+                    data=dat.bites.spmodPO, family="negbinomial")
+mod.brms.PO.2 = brm(formula =TotalBites ~ bite_on*habitat + (1|id/Date),
                     data=dat.bites.spmodPO, family="negbinomial", sample_prior = T,
-                    prior = c(prior(normal(0, 5), class = "Intercept"),
-                              prior(normal(0, 5), class = "b"),
-                              prior(normal(0,5), class = "sd"), 
-                              prior(gamma(0.1, 0.1), class = "shape")),
+                    prior = mpriors,
                     warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
                     control = list(adapt_delta = 0.98))
-mod.brms.CS.2 = brm(formula =TotalBites ~ bite_on+ (1|id/Date), 
+mpriors = brms::get_prior(formula =TotalBites ~ bite_on + (1|id/Date), 
+                    data=dat.bites.spmodCS, family="negbinomial")
+mod.brms.CS.2 = brm(formula =TotalBites ~ bite_on + (1|id/Date), 
                     data=dat.bites.spmodCS, family="negbinomial", sample_prior = T,
-                    prior = c(prior(normal(0, 5), class = "Intercept"),
-                              prior(normal(0, 5), class = "b"),
-                              prior(normal(0,5), class = "sd"), 
-                              prior(gamma(0.1, 0.1), class = "shape")),
+                    prior =mpriors,
                     warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
                     control = list(adapt_delta = 0.98))
+mpriors = brms::get_prior(formula =TotalBites ~ bite_on*habitat  + (1|id/Date), 
+                    data=dat.bites.spmodES, family="negbinomial")
 mod.brms.ES.2 = brm(formula =TotalBites ~ bite_on*habitat + (1|id/Date), 
                     data=dat.bites.spmodES, family="negbinomial", sample_prior = T,
-                    prior = c(prior(normal(0, 5), class = "Intercept"),
-                              prior(normal(0, 5), class = "b"),
-                              prior(normal(0,5), class = "sd"), 
-                              prior(gamma(0.1, 0.1), class = "shape")),
+                    prior = mpriors,
                     warmup = 200, iter = 2000, chains = 3, cores = 3, thin=2,
                     control = list(adapt_delta = 0.98))
+mpriors = brms::get_prior(formula =TotalBites ~ bite_on + (1|id/Date), 
+                    data=dat.bites.graz, family="negbinomial")
 mod.brms.GZ.2 = brm(formula =TotalBites ~ bite_on+ (1|id/Date), 
                     data=dat.bites.graz, family="negbinomial", sample_prior = T,
-                    prior = c(prior(normal(0, 5), class = "Intercept"),
-                              prior(normal(0, 5), class = "b"),
-                              prior(normal(0,5), class = "sd"), 
-                              prior(gamma(0.1, 0.1), class = "shape")),
+                    prior = mpriors,
+                    warmup = 400, iter = 4000, chains = 3, cores = 3, thin=2,
+                    control = list(adapt_delta = 0.98))
+mpriors = brms::get_prior(formula =TotalBites ~ bite_on + (1|id/Date), 
+                    data=dat.bites.scarus, family="negbinomial")
+mod.brms.SC.2 = brm(formula =TotalBites ~ bite_on+ (1|id/Date), 
+                    data=dat.bites.scarus, family="negbinomial", sample_prior = T,
+                    prior = mpriors,
                     warmup = 400, iter = 4000, chains = 3, cores = 3, thin=2,
                     control = list(adapt_delta = 0.98))
 mod_emGZ.2 = emmeans::emmeans(mod.brms.GZ.2,~ bite_on, type="response")
 pairs(mod_emGZ.2, reverse=T)
+
+mod.GRZ.2 = add_criterion(mod.brms.GZ.2,  "loo")
+mod.GRZ.22 = add_criterion(mod.brms.GZ.22,  "loo")
+loo::loo_compare(mod.GRZ.2,mod.GRZ.22,  criterion = "loo")
+
+pairs(emmeans::emmeans(mod.brms.GZ.2,~ bite_on, type="response", level=0.95), reverse = T)
+pairs(emmeans::emmeans(mod.brms.SC.2,~ bite_on, type="response", level=0.9), reverse = T)
+pairs(emmeans::emmeans(mod.brms.PO.2,~ bite_on|habitat, type="response", level=0.95), reverse = T)
+pairs(emmeans::emmeans(mod.brms.ES.2,~ bite_on|habitat, type="response", level=0.95), reverse = T)
+emmeans::emmeans(mod.brms.ES.2,~ bite_on|habitat, type="response", level=0.95)
+pairs(emmeans::emmeans(mod.brms.ES.2,~ bite_on, type="response", level=0.95), reverse = T)
+pairs(emmeans::emmeans(mod.brms.PO.2,~ bite_on, type="response", level=0.95), reverse = T)
+pairs(emmeans::emmeans(mod.brms.CS.2,~ bite_on, type="response",level=0.95), reverse = T)
 ```
 
 ```{r Plot pooled species results}
@@ -1137,6 +1250,13 @@ pGZa = mod.brms.GZ.2 %>% emmeans(~ bite_on, type="response") %>%
 pGZb = pGZa %>% compare_levels(.value, by = bite_on) %>%
   mutate( habitat = "Crest")
 
+pSCa = mod.brms.SC.2 %>% emmeans(~ bite_on, type="response") %>%
+  gather_emmeans_draws(type="response") %>%
+  mutate(.value = exp(.value)/3, habitat = "Crest")
+
+pSCb = pSCa %>% compare_levels(.value, by = bite_on) %>%
+  mutate( habitat = "Crest")
+
 #Now Plot
 pGZ.1 = ggplot(pGZa, aes(y = (.value), x=habitat, fill = bite_on)) +
   theme_bw(base_size = 12) +
@@ -1145,14 +1265,11 @@ pGZ.1 = ggplot(pGZa, aes(y = (.value), x=habitat, fill = bite_on)) +
   geom_point(data=dat.bites.graz, aes(y=(TotalBites/3), x=habitat, colour=bite_on),
              position = position_jitterdodge(jitter.width = 0.1),pch=1) +
   stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
-  # scale_fill_manual(values=c("seagreen", "orange")) +
-  # scale_colour_manual(values=c("seagreen", "orange")) +
+  scale_fill_manual(values=c("seagreen", "orange"),labels = c("Algal turf with \nSargassum propagules", 
+                                             "Algal turf without \nSargassum propagules")) +
+  scale_colour_manual(values=c("seagreen", "orange"),labels = c("Algal turf with \nSargassum propagules", 
+                                             "Algal turf without \nSargassum propagules")) +
   coord_cartesian(ylim = c(0,10)) +
-  scale_fill_viridis_d(end  =0.7,labels = c("Algal turf with \nSargassum propagules", 
-                                             "Algal turf without \nSargassum propagules")) +
-  # scale_y_log10() +
-  scale_colour_viridis_d(end = 0.7,labels = c("Algal turf with \nSargassum propagules", 
-                                             "Algal turf without \nSargassum propagules")) +
   theme(legend.position = "bottom",axis.title.x = element_blank(),axis.title.y = element_text(family="sans"),
         legend.title = element_blank(),legend.margin=margin(-10, 0, 0, 0)) +
   # facet_wrap(~species, scales = "free_y", ncol = 1) +
@@ -1167,21 +1284,53 @@ pGZ.2 = ggplot(pGZb, aes(x = .value, y = habitat)) +
   geom_vline(xintercept=0, linetype="dashed") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
   # scale_x_log10() +
-  theme(legend.position = "right", axis.title.y = element_blank(),legend.margin=margin(-5, 0, 0, 0)) + 
+   # theme(legend.position = "none",axis.title.x = element_blank(),axis.title.y = element_blank()) +
+  theme(legend.position = "right", axis.title.y = element_blank(), axis.text.y = element_blank(),legend.margin=margin(-5, 0, 0, 0)) +
   # facet_wrap(~species, scales="free", ncol=1) 
   # coord_cartesian(xlim = c(-20,500)) +
   # geom_vline(xintercept=0, linetype="dashed") +
   # facet_wrap(~habitat, ncol = 1) +
   xlab("Difference in bites \n(Caged-Exposed)")
 
+pSC.1 = ggplot(pSCa, aes(y = (.value), x=habitat, fill = bite_on)) +
+  theme_bw(base_size = 12) +
+  stat_eye(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.5, 0.95)) +
+  geom_point(data=dat.bites.graz, aes(y=(TotalBites/3), x=habitat, colour=bite_on),
+             position = position_jitterdodge(jitter.width = 0.1),pch=1) +
+  stat_pointinterval(alpha=0.7, position = position_dodge(width = 0.7), .width = c(0.66, 0.95)) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_fill_viridis_d(end  =0.7,labels = c("Algal turf with \nSargassum propagules", 
+                                             "Algal turf without \nSargassum propagules")) +
+  scale_colour_viridis_d(end = 0.7,labels = c("Algal turf with \nSargassum propagules", 
+                                             "Algal turf without \nSargassum propagules")) +
+  theme(legend.position = "bottom",axis.title.x = element_blank(),axis.title.y = element_text(family="sans"),
+        legend.title = element_blank(),legend.margin=margin(-10, 0, 0, 0)) +
+  ylab(expression(Number~of~bites~hr^{"-1"}~"\U00B1"~"95% quantile intervals"))  
+
+pSC.2 = ggplot(pSCb, aes(x = .value, y = habitat)) +
+  stat_pointinterval(alpha=0.7, .width = c(0.66, 0.95)) +
+  theme_bw(base_size = 12) + 
+  geom_vline(xintercept=0, linetype="dashed") +
+  theme(legend.position = "right", axis.title.y = element_blank(),legend.margin=margin(-5, 0, 0, 0)) + 
+  xlab("Difference in bites \n(Caged-Exposed)")
+
 g=egg::ggarrange(pGZ.1, pGZ.2, ncol=2, widths = c(1.2,1))
 
 ggsave("Figures/Grazers.png", plot = g, device = "png", 
        width = 8, height = 5, dpi=300)
-# ggsave("Figures/Grazers.pdf", plot = g, device = cairo_pdf, 
-       # width = 8, height = 5, dpi=300)
+ggsave("Figures/Grazers.pdf", plot = g, device = cairo_pdf,
+width = 8, height = 5, dpi=300)
 ggsave("Figures/Grazers.svg", plot = g, device = "svg",
        width = 8, height = 5, dpi=300)
+g=egg::ggarrange(pSC.1, pSC.2, ncol=2, widths = c(1.2,1))
+
+ggsave("Figures/Scarus.png", plot = g, device = "png", 
+       width = 8, height = 5, dpi=300)
+ggsave("Figures/Scarus.pdf", plot = g, device = cairo_pdf,
+       width = 8, height = 5, dpi=300)
+ggsave("Figures/Scarus.svg", plot = g, device = "svg",
+       width = 8, height = 5, dpi=300)
+
 #Start HEre for remaining species !!!!
 
 # Ecsenius stictus---
@@ -1312,9 +1461,11 @@ pCSa = ggplot(pCSa, aes(y = (.value), x=habitat, fill = bite_on)) +
   # scale_fill_viridis_d() +
   # scale_y_log10() +
   # scale_colour_viridis_d() +
-  theme(legend.position = "bottom",legend.title = element_blank(),
-        axis.title.x = element_blank(),axis.title.y = element_blank(),
-        legend.margin=margin(-13, 0, 0, 0)) +
+  theme(legend.position = "none", axis.title.y = element_blank(),axis.text.y = element_blank(),
+        axis.title.x = element_blank()) +
+  # theme(legend.position = "bottom",legend.title = element_blank(),
+  #       axis.title.x = element_blank(),axis.title.y = element_blank(),
+  #       legend.margin=margin(-13, 0, 0, 0)) +
   facet_wrap(~species, scales = "free_y", ncol = 1)
 
 pCSb = ggplot(pCSb, aes(x = .value, y = habitat)) +
@@ -1326,7 +1477,9 @@ pCSb = ggplot(pCSb, aes(x = .value, y = habitat)) +
   geom_vline(xintercept=0, linetype="dashed") +
   # scale_y_continuous(breaks = c(0.25, 0.5,0.75,1,1.25), limits = c(0.25,1.5)) +
   # scale_x_log10() +
-  theme(legend.position = "right", axis.title.y = element_blank(),axis.text.y = element_blank()) +
+  theme(legend.position = "none", axis.title.y = element_blank(),axis.text.y = element_blank(),
+        axis.title.x = element_blank()) +
+  # theme(legend.position = "right", axis.title.y = element_blank(),axis.text.y = element_blank()) +
   facet_wrap(~species, scales="free", ncol=1) + 
   xlab("Difference in Bites \n(Turf-Propagules)")
   # coord_cartesian(xlim = c(-20,500)) +
@@ -1336,7 +1489,7 @@ pCSb = ggplot(pCSb, aes(x = .value, y = habitat)) +
 egg::ggarrange(pCSa, pCSb, ncol=2, widths = c(1.2,1))
 
 g = egg::ggarrange(pESa, pESb,pPOa, pPOb,
-                pCSa, pCSb,ncol=2,nrow = 3, widths = c(1.4,1),heights = c(1.5, 1.5,1))
+                pCSa, pCSb, pGZ.1, pGZ.2,ncol=2,nrow = 4, widths = c(1.4,1),heights = c(1.5, 1.5,1,1))
 
 ggsave("Figures/GrazingSpecies.png", plot = g, device = "png", 
        width = 6, height = 8, dpi=300)
